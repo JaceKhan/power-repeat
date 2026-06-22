@@ -133,6 +133,7 @@ export default function Home() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const timerRef = useRef<number | null>(null);
+  const speechTokenRef = useRef(0);
 
   const selectedStudent = useMemo(
     () => students.find((student) => student.id === selectedStudentId) ?? students[0],
@@ -323,6 +324,14 @@ export default function Home() {
       return;
     }
 
+    const nextSpeakingSegmentId = segmentId ?? "full";
+    if (isSpeaking && speakingSegmentId === nextSpeakingSegmentId) {
+      stopNativePronunciation();
+      return;
+    }
+
+    const speechToken = speechTokenRef.current + 1;
+    speechTokenRef.current = speechToken;
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text ?? selectedAssignment.passage);
@@ -339,6 +348,10 @@ export default function Home() {
       utterance.voice = preferredVoice;
     }
     utterance.onend = () => {
+      if (speechTokenRef.current !== speechToken) {
+        return;
+      }
+
       setIsSpeaking(false);
       setSpeakingSegmentId(null);
 
@@ -357,17 +370,22 @@ export default function Home() {
       }
     };
     utterance.onerror = () => {
+      if (speechTokenRef.current !== speechToken) {
+        return;
+      }
+
       setIsSpeaking(false);
       setSpeakingSegmentId(null);
       setNotice("본문 듣기 재생에 실패했습니다. 브라우저 음성 설정을 확인해 주세요.");
     };
 
     setIsSpeaking(true);
-    setSpeakingSegmentId(segmentId ?? "full");
+    setSpeakingSegmentId(nextSpeakingSegmentId);
     window.speechSynthesis.speak(utterance);
   };
 
   const stopNativePronunciation = () => {
+    speechTokenRef.current += 1;
     window.speechSynthesis?.cancel();
     setIsSpeaking(false);
     setSpeakingSegmentId(null);
@@ -951,7 +969,11 @@ export default function Home() {
                           <span>{index + 1}번 구간 듣기</span>
                           <p>{segment.text}</p>
                           <small>
-                            {isCompleted ? "완료 - A+ 준비에 반영됨" : "클릭해서 끝까지 듣기"}
+                            {isActive
+                              ? "재생 중 - 다시 누르면 멈춤"
+                              : isCompleted
+                                ? "완료 - A+ 준비에 반영됨"
+                                : "클릭해서 끝까지 듣기"}
                           </small>
                         </button>
                       );
