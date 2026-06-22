@@ -51,6 +51,7 @@ type CreateAssignmentInput = {
   passage: string;
   instructions: string;
   dueDate: string;
+  teacherName?: string;
 };
 
 type CreateSubmissionInput = {
@@ -189,7 +190,7 @@ export const createAssignment = async (input: CreateAssignmentInput) => {
     dueDate,
     instructions: input.instructions?.trim() ?? "",
     createdAt: new Date().toISOString(),
-    teacherName: "Jamie Teacher"
+    teacherName: input.teacherName?.trim() || "Jamie Teacher"
   };
 
   const data = await readData();
@@ -312,6 +313,7 @@ export const readAudio = async (fileName: string) => {
 
   return {
     buffer,
-    contentType: submission.audioContentType || "audio/webm"
+    contentType: submission.audioContentType || "audio/webm",
+    submission
   };
 };

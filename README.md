@@ -4,6 +4,11 @@
 
 ## 기능
 
+- 로그인/권한
+  - HttpOnly 쿠키 기반 데모 세션
+  - 선생님/학생 역할별 화면 분리
+  - 선생님 전용 과제 생성/피드백 API 권한 검사
+  - 학생 본인 녹음 제출만 허용
 - 선생님 모드
   - 반별 리딩 본문 과제 생성
   - 제출률과 과제별 제출 현황 확인
@@ -36,6 +41,16 @@ npm run dev
 
 브라우저에서 `http://localhost:3000`으로 접속합니다.
 
+## 데모 계정
+
+| 역할 | 이메일 | 비밀번호 |
+| --- | --- | --- |
+| 선생님 | `teacher@powerrepeat.test` | `teacher123` |
+| 학생 | `minjun@powerrepeat.test` | `student123` |
+| 학생 | `jiwoo@powerrepeat.test` | `student123` |
+
+데모 세션 서명에는 `AUTH_SECRET` 환경 변수를 사용할 수 있습니다. 설정하지 않으면 개발용 기본값을 사용합니다.
+
 ## 검증
 
 ```bash
@@ -53,6 +68,9 @@ npm audit --audit-level=moderate
 - 제출 오디오 파일: `.data/uploads`
 - 오디오 재생: `/api/audio/[fileName]`
 - 전체 상태 조회: `/api/state`
+- 현재 사용자/데모 계정: `GET /api/auth/me`
+- 로그인: `POST /api/auth/login`
+- 로그아웃: `POST /api/auth/logout`
 - 과제 생성: `POST /api/assignments`
 - 녹음 제출: `POST /api/submissions`
 - 제출 검토: `PATCH /api/submissions/[submissionId]`

@@ -44,6 +44,11 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 audio {
   width: 100%;
 }
@@ -145,6 +150,80 @@ audio {
   background: white;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
   color: var(--foreground);
+}
+
+.session-bar {
+  align-items: center;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  padding: 18px 20px;
+}
+
+.session-bar strong,
+.session-bar span {
+  display: block;
+}
+
+.session-bar span {
+  color: var(--muted);
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.session-bar button {
+  background: #eef2ff;
+  border: 0;
+  border-radius: 14px;
+  color: #273b77;
+  font-weight: 900;
+  padding: 12px 16px;
+}
+
+.auth-panel {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+
+.auth-panel h2 {
+  font-size: 30px;
+  letter-spacing: -0.04em;
+  margin: 8px 0 12px;
+}
+
+.auth-panel p {
+  color: var(--muted);
+  line-height: 1.7;
+  margin: 0;
+}
+
+.demo-grid {
+  display: grid;
+  gap: 10px;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.demo-grid button {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  color: var(--foreground);
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  text-align: left;
+}
+
+.demo-grid span,
+.demo-grid small {
+  color: var(--muted);
 }
 
 .grid {
@@ -491,7 +570,12 @@ textarea:focus {
   .hero,
   .teacher-grid,
   .student-grid,
+  .auth-panel,
   .two-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .demo-grid {
     grid-template-columns: 1fr;
   }
 

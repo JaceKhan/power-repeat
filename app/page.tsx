@@ -1,9 +1,16 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { SessionUser } from "@/lib/auth";
 import type { Assignment, HomeworkState, Student, Submission } from "@/lib/homework-data";
 
 type RecordingState = "idle" | "recording" | "ready";
+type LoginDemoUser = Pick<SessionUser, "email" | "name" | "role"> & {
+  passwordHint: string;
+};
+type AuthenticatedHomeworkState = HomeworkState & {
+  currentUser: SessionUser;
+};
 
 const DEFAULT_FORM_DUE_DATE = "2026-06-24";
 
@@ -31,6 +38,8 @@ const blobToDataUrl = (blob: Blob) =>
 
 export default function Home() {
   const [activeRole, setActiveRole] = useState<"teacher" | "student">("teacher");
+  const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
+  const [demoUsers, setDemoUsers] = useState<LoginDemoUser[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
@@ -48,6 +57,10 @@ export default function Home() {
     dueDate: DEFAULT_FORM_DUE_DATE,
     passage: "",
     instructions: "본문 전체를 또렷하게 읽고, 제출 전 반드시 미리듣기로 확인하세요."
+  });
+  const [loginForm, setLoginForm] = useState({
+    email: "teacher@powerrepeat.test",
+    password: "teacher123"
   });
   const [feedbackDraft, setFeedbackDraft] = useState<Record<string, string>>({});
   const [scoreDraft, setScoreDraft] = useState<Record<string, number>>({});
@@ -96,37 +109,53 @@ export default function Home() {
   const completionRate =
     assignedSubmissionSlots === 0 ? 0 : Math.round((submittedCount / assignedSubmissionSlots) * 100);
 
-  useEffect(() => {
-    const loadState = async () => {
-      try {
-        const response = await fetch("/api/state");
-        if (!response.ok) {
-          throw new Error("state request failed");
-        }
-
-        const state = (await response.json()) as HomeworkState;
-        setAssignments(state.assignments);
-        setSubmissions(state.submissions);
-        setStudents(state.students);
-        setSelectedStudentId((current) =>
-          current && state.students.some((student) => student.id === current)
-            ? current
-            : (state.students[0]?.id ?? "")
-        );
-        setSelectedAssignmentId((current) =>
-          current && state.assignments.some((assignment) => assignment.id === current)
-            ? current
-            : (state.assignments[0]?.id ?? "")
-        );
-      } catch {
-        setNotice("서버 학습 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
-      } finally {
-        setIsLoading(false);
+  const loadState = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/state");
+      if (response.status === 401) {
+        const authResponse = await fetch("/api/auth/me");
+        const authState = (await authResponse.json()) as {
+          user: SessionUser | null;
+          demoUsers: LoginDemoUser[];
+        };
+        setCurrentUser(null);
+        setDemoUsers(authState.demoUsers);
+        setAssignments([]);
+        setSubmissions([]);
+        setStudents([]);
+        return;
       }
-    };
+      if (!response.ok) {
+        throw new Error("state request failed");
+      }
 
-    void loadState();
+      const state = (await response.json()) as AuthenticatedHomeworkState;
+      setCurrentUser(state.currentUser);
+      setActiveRole(state.currentUser.role);
+      setAssignments(state.assignments);
+      setSubmissions(state.submissions);
+      setStudents(state.students);
+      setSelectedStudentId((current) =>
+        current && state.students.some((student) => student.id === current)
+          ? current
+          : (state.students[0]?.id ?? "")
+      );
+      setSelectedAssignmentId((current) =>
+        current && state.assignments.some((assignment) => assignment.id === current)
+          ? current
+          : (state.assignments[0]?.id ?? "")
+      );
+    } catch {
+      setNotice("서버 학습 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadState();
+  }, [loadState]);
 
   useEffect(() => {
     if (visibleAssignments.length && !visibleAssignments.some((item) => item.id === selectedAssignmentId)) {
@@ -195,6 +224,44 @@ export default function Home() {
     recorderRef.current = null;
   };
 
+  const login = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSaving(true);
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(loginForm)
+      });
+
+      if (!response.ok) {
+        throw new Error("login failed");
+      }
+
+      await loadState();
+      setNotice("로그인되었습니다.");
+    } catch {
+      setNotice("로그인에 실패했습니다. 데모 계정 정보를 확인해 주세요.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const logout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setCurrentUser(null);
+    setAssignments([]);
+    setSubmissions([]);
+    setStudents([]);
+    setSelectedStudentId("");
+    setSelectedAssignmentId("");
+    resetRecording();
+    await loadState();
+    setNotice("로그아웃되었습니다.");
+  };
+
   const submitRecording = async () => {
     if (!selectedAssignment || !selectedStudent || !audioBlob) {
       setNotice("제출할 녹음이 없습니다. 먼저 녹음하거나 파일을 선택해 주세요.");
@@ -205,7 +272,6 @@ export default function Home() {
     try {
       const formData = new FormData();
       formData.append("assignmentId", selectedAssignment.id);
-      formData.append("studentId", selectedStudent.id);
       formData.append("durationSec", String(Math.max(recordingSec, 1)));
       formData.append("audio", audioBlob, `reading-${selectedAssignment.id}.webm`);
 
@@ -343,24 +409,74 @@ export default function Home() {
 
       {isLoading ? <p className="empty">서버 학습 데이터를 불러오는 중입니다.</p> : null}
 
-      <nav className="role-switch" aria-label="사용자 역할">
-        <button
-          className={activeRole === "teacher" ? "active" : ""}
-          type="button"
-          onClick={() => setActiveRole("teacher")}
-        >
-          선생님 모드
-        </button>
-        <button
-          className={activeRole === "student" ? "active" : ""}
-          type="button"
-          onClick={() => setActiveRole("student")}
-        >
-          학생 모드
-        </button>
-      </nav>
+      {currentUser ? (
+        <section className="session-bar">
+          <div>
+            <p className="eyebrow">{currentUser.role === "teacher" ? "Teacher" : "Student"} session</p>
+            <strong>{currentUser.name}</strong>
+            <span>{currentUser.email}</span>
+          </div>
+          <button type="button" onClick={logout}>
+            로그아웃
+          </button>
+        </section>
+      ) : null}
 
-      {activeRole === "teacher" ? (
+      {!currentUser && !isLoading ? (
+        <section className="panel auth-panel">
+          <div>
+            <p className="eyebrow">Login</p>
+            <h2>데모 계정으로 로그인</h2>
+            <p>
+              선생님과 학생 권한을 분리했습니다. 아래 데모 계정 중 하나를 선택하거나 직접 입력해
+              로그인하세요.
+            </p>
+          </div>
+          <form className="stack" onSubmit={login}>
+            <label>
+              이메일
+              <input
+                autoComplete="email"
+                value={loginForm.email}
+                onChange={(event) =>
+                  setLoginForm((current) => ({ ...current, email: event.target.value }))
+                }
+              />
+            </label>
+            <label>
+              비밀번호
+              <input
+                autoComplete="current-password"
+                type="password"
+                value={loginForm.password}
+                onChange={(event) =>
+                  setLoginForm((current) => ({ ...current, password: event.target.value }))
+                }
+              />
+            </label>
+            <button className="primary-button" disabled={isSaving} type="submit">
+              {isSaving ? "로그인 중..." : "로그인"}
+            </button>
+          </form>
+          <div className="demo-grid">
+            {demoUsers.map((user) => (
+              <button
+                key={user.email}
+                type="button"
+                onClick={() => setLoginForm({ email: user.email, password: user.passwordHint })}
+              >
+                <strong>{user.name}</strong>
+                <span>{user.role === "teacher" ? "선생님" : "학생"} 계정</span>
+                <small>
+                  {user.email} / {user.passwordHint}
+                </small>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {currentUser && activeRole === "teacher" ? (
         <section className="grid teacher-grid">
           <article className="panel">
             <div className="panel-heading">
@@ -550,7 +666,7 @@ export default function Home() {
             </div>
           </article>
         </section>
-      ) : (
+      ) : currentUser ? (
         <section className="grid student-grid">
           <article className="panel">
             <div className="panel-heading">
@@ -578,7 +694,7 @@ export default function Home() {
             <div className="assignment-list compact">
               {visibleAssignments.map((assignment) => {
                 const submission = submissions.find(
-                  (item) => item.assignmentId === assignment.id && item.studentId === selectedStudent.id
+                  (item) => item.assignmentId === assignment.id && item.studentId === selectedStudent?.id
                 );
                 return (
                   <button
@@ -686,7 +802,7 @@ export default function Home() {
             )}
           </article>
         </section>
-      )}
+      ) : null}
     </main>
   );
 }
