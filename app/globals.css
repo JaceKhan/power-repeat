@@ -387,6 +387,7 @@ textarea:focus {
   border-radius: 18px;
   color: inherit;
   display: flex;
+  flex-wrap: wrap;
   gap: 14px;
   justify-content: space-between;
   padding: 16px;
@@ -428,6 +429,52 @@ textarea:focus {
 
 .metrics strong {
   font-size: 24px;
+}
+
+.student-grade-list {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  width: 100%;
+}
+
+.student-grade-row {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 13px;
+  justify-content: space-between;
+}
+
+.grade-pill {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 900;
+  justify-content: center;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+.grade-aplus {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.grade-a {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.grade-b {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.grade-f {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .review-list {
@@ -531,6 +578,74 @@ textarea:focus {
   margin: 6px 0 0;
 }
 
+.prep-panel {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  padding: 18px;
+}
+
+.prep-summary {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.prep-summary strong,
+.prep-summary span {
+  display: block;
+}
+
+.prep-summary div > span {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.prep-segments {
+  display: grid;
+  gap: 10px;
+}
+
+.prep-segment {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  color: var(--foreground);
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  text-align: left;
+}
+
+.prep-segment span {
+  color: var(--brand);
+  font-weight: 900;
+}
+
+.prep-segment p {
+  line-height: 1.6;
+  margin: 0;
+}
+
+.prep-segment small {
+  color: var(--muted);
+}
+
+.prep-segment.completed {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+
+.prep-segment.active {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
 .instructions,
 .feedback-box,
 .recorder {
@@ -606,6 +721,11 @@ textarea:focus {
   }
 
   .listening-tools {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .prep-summary {
     align-items: stretch;
     flex-direction: column;
   }

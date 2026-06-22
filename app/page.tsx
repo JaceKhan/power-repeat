@@ -11,8 +11,13 @@ type LoginDemoUser = Pick<SessionUser, "email" | "name" | "role"> & {
 type AuthenticatedHomeworkState = HomeworkState & {
   currentUser: SessionUser;
 };
+type PrepSegment = {
+  id: string;
+  text: string;
+};
 
 const DEFAULT_FORM_DUE_DATE = "2026-06-24";
+const TARGET_PREP_SEGMENT_LENGTH = 150;
 
 const formatDateTime = (value: string) =>
   new Intl.DateTimeFormat("ko-KR", {
@@ -28,6 +33,17 @@ const formatDuration = (seconds: number) => {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
+const getGradeClassName = (grade: Submission["grade"] | "F") =>
+  `grade-pill ${
+    grade === "A+"
+      ? "grade-aplus"
+      : grade === "A"
+        ? "grade-a"
+        : grade === "B"
+          ? "grade-b"
+          : "grade-f"
+  }`;
+
 const blobToDataUrl = (blob: Blob) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -35,6 +51,37 @@ const blobToDataUrl = (blob: Blob) =>
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(blob);
   });
+
+const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
+  const sentences = passage
+    .replace(/\s+/g, " ")
+    .trim()
+    .match(/[^.!?]+[.!?]+|[^.!?]+$/g)
+    ?.map((sentence) => sentence.trim())
+    .filter(Boolean) ?? [passage.trim()].filter(Boolean);
+
+  const segments: string[] = [];
+  let current = "";
+
+  sentences.forEach((sentence) => {
+    const next = current ? `${current} ${sentence}` : sentence;
+    if (current && next.length > TARGET_PREP_SEGMENT_LENGTH) {
+      segments.push(current);
+      current = sentence;
+    } else {
+      current = next;
+    }
+  });
+
+  if (current) {
+    segments.push(current);
+  }
+
+  return segments.map((text, index) => ({
+    id: `segment-${index}`,
+    text
+  }));
+};
 
 export default function Home() {
   const [activeRole, setActiveRole] = useState<"teacher" | "student">("teacher");
@@ -50,6 +97,8 @@ export default function Home() {
   const [audioDataUrl, setAudioDataUrl] = useState("");
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [speakingSegmentId, setSpeakingSegmentId] = useState<string | null>(null);
+  const [completedPrepSegments, setCompletedPrepSegments] = useState<Record<string, string[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState({
@@ -100,6 +149,22 @@ export default function Home() {
       ),
     [selectedAssignment?.id, selectedStudent?.id, submissions]
   );
+
+  const prepSegments = useMemo(
+    () => splitPassageIntoPrepSegments(selectedAssignment?.passage ?? ""),
+    [selectedAssignment?.passage]
+  );
+
+  const completedSegmentIds = useMemo(() => {
+    if (!selectedAssignment) {
+      return [];
+    }
+
+    return completedPrepSegments[selectedAssignment.id] ?? [];
+  }, [completedPrepSegments, selectedAssignment]);
+
+  const prepCompleted =
+    prepSegments.length > 0 && completedSegmentIds.length >= prepSegments.length;
 
   const submittedCount = submissions.filter((submission) => submission.status !== "resubmit").length;
   const assignedSubmissionSlots = assignments.reduce(
@@ -176,6 +241,7 @@ export default function Home() {
     setRecordingSec(0);
     setAudioDataUrl("");
     setAudioBlob(null);
+    stopNativePronunciation();
     chunksRef.current = [];
   };
 
@@ -232,7 +298,7 @@ export default function Home() {
     recorderRef.current = null;
   };
 
-  const playNativePronunciation = () => {
+  const playNativePronunciation = (text?: string, segmentId?: string) => {
     if (!selectedAssignment) {
       return;
     }
@@ -244,7 +310,7 @@ export default function Home() {
 
     window.speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(selectedAssignment.passage);
+    const utterance = new SpeechSynthesisUtterance(text ?? selectedAssignment.passage);
     const voices = window.speechSynthesis.getVoices();
     const preferredVoice =
       voices.find((voice) => voice.lang === "en-US" && /google|samantha|zira|natural/i.test(voice.name)) ??
@@ -257,19 +323,39 @@ export default function Home() {
     if (preferredVoice) {
       utterance.voice = preferredVoice;
     }
-    utterance.onend = () => setIsSpeaking(false);
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      setSpeakingSegmentId(null);
+
+      if (segmentId) {
+        setCompletedPrepSegments((current) => {
+          const currentSegments = current[selectedAssignment.id] ?? [];
+          if (currentSegments.includes(segmentId)) {
+            return current;
+          }
+
+          return {
+            ...current,
+            [selectedAssignment.id]: [...currentSegments, segmentId]
+          };
+        });
+      }
+    };
     utterance.onerror = () => {
       setIsSpeaking(false);
+      setSpeakingSegmentId(null);
       setNotice("본문 듣기 재생에 실패했습니다. 브라우저 음성 설정을 확인해 주세요.");
     };
 
     setIsSpeaking(true);
+    setSpeakingSegmentId(segmentId ?? "full");
     window.speechSynthesis.speak(utterance);
   };
 
   const stopNativePronunciation = () => {
     window.speechSynthesis?.cancel();
     setIsSpeaking(false);
+    setSpeakingSegmentId(null);
   };
 
   const login = async (event: FormEvent<HTMLFormElement>) => {
@@ -321,6 +407,9 @@ export default function Home() {
       const formData = new FormData();
       formData.append("assignmentId", selectedAssignment.id);
       formData.append("durationSec", String(Math.max(recordingSec, 1)));
+      formData.append("prepCompleted", String(prepCompleted));
+      formData.append("completedPrepSegments", String(completedSegmentIds.length));
+      formData.append("totalPrepSegments", String(prepSegments.length));
       formData.append("audio", audioBlob, `reading-${selectedAssignment.id}.webm`);
 
       const response = await fetch("/api/submissions", {
@@ -619,6 +708,19 @@ export default function Home() {
                         {relatedSubmissions.length}/{assignedStudents.length}
                       </strong>
                     </div>
+                    <div className="student-grade-list">
+                      {assignedStudents.map((student) => {
+                        const submission = relatedSubmissions.find((item) => item.studentId === student.id);
+                        const grade = submission?.grade ?? "F";
+
+                        return (
+                          <span className="student-grade-row" key={student.id}>
+                            {student.name}
+                            <strong className={getGradeClassName(grade)}>{grade}</strong>
+                          </span>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}
@@ -651,11 +753,16 @@ export default function Home() {
                               ? "피드백 완료"
                               : "재제출 요청"}
                         </span>
+                        <strong className={getGradeClassName(submission.grade)}>{submission.grade}</strong>
                       </div>
                       <audio controls src={submission.audioUrl} />
                       <div className="submission-details">
                         <span>제출 {formatDateTime(submission.submittedAt)}</span>
                         <span>길이 {formatDuration(submission.durationSec)}</span>
+                        <span>
+                          문단 듣기 {submission.completedPrepSegments ?? 0}/
+                          {submission.totalPrepSegments ?? 0}
+                        </span>
                       </div>
                       <div className="two-columns">
                         <label>
@@ -759,7 +866,7 @@ export default function Home() {
                       {submission
                         ? submission.status === "resubmit"
                           ? "재제출 필요"
-                          : "제출 완료"
+                          : `제출 완료 - ${submission.grade}`
                         : `마감 ${assignment.dueDate}`}
                     </small>
                   </button>
@@ -784,17 +891,56 @@ export default function Home() {
                 <div className="listening-tools">
                   <div>
                     <strong>먼저 듣고 따라 읽기</strong>
-                    <p>브라우저의 영어 음성으로 본문을 읽어줍니다. 듣고 연습한 뒤 녹음하세요.</p>
+                    <p>
+                      본문을 약 150자 전후 문단으로 나눴습니다. 모든 문단을 끝까지 들으면 A+
+                      준비 표시가 됩니다.
+                    </p>
                   </div>
                   <div className="button-row">
-                    <button className="primary-button" type="button" onClick={playNativePronunciation}>
-                      원어민 발음으로 듣기
+                    <button className="primary-button" type="button" onClick={() => playNativePronunciation()}>
+                      전체 원어민 발음으로 듣기
                     </button>
                     {isSpeaking ? (
                       <button type="button" onClick={stopNativePronunciation}>
                         듣기 중지
                       </button>
                     ) : null}
+                  </div>
+                </div>
+                <div className="prep-panel">
+                  <div className="prep-summary">
+                    <div>
+                      <strong>문단 듣기 완료</strong>
+                      <span>
+                        {completedSegmentIds.length}/{prepSegments.length}
+                      </span>
+                    </div>
+                    <span className={`grade-pill ${prepCompleted ? "grade-aplus" : "grade-a"}`}>
+                      {prepCompleted ? "A+ 준비 완료" : "듣기 없이 제출하면 A"}
+                    </span>
+                  </div>
+                  <div className="prep-segments">
+                    {prepSegments.map((segment, index) => {
+                      const isCompleted = completedSegmentIds.includes(segment.id);
+                      const isActive = speakingSegmentId === segment.id;
+
+                      return (
+                        <button
+                          className={`prep-segment ${isCompleted ? "completed" : ""} ${
+                            isActive ? "active" : ""
+                          }`}
+                          key={segment.id}
+                          type="button"
+                          onClick={() => playNativePronunciation(segment.text, segment.id)}
+                        >
+                          <span>{index + 1}번 문단 듣기</span>
+                          <p>{segment.text}</p>
+                          <small>
+                            {isCompleted ? "완료 - A+ 준비에 반영됨" : "클릭해서 끝까지 듣기"}
+                          </small>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="instructions">
@@ -816,6 +962,13 @@ export default function Home() {
                         "녹음이 제출되었습니다. 선생님이 검토하면 피드백이 표시됩니다."}
                     </p>
                     {currentSubmission.score ? <span>점수 {currentSubmission.score}/100</span> : null}
+                    <strong className={getGradeClassName(currentSubmission.grade)}>
+                      제출 등급 {currentSubmission.grade}
+                    </strong>
+                    <span>
+                      문단 듣기 {currentSubmission.completedPrepSegments ?? 0}/
+                      {currentSubmission.totalPrepSegments ?? 0}
+                    </span>
                     <audio controls src={currentSubmission.audioUrl} />
                   </div>
                 ) : null}
@@ -857,7 +1010,8 @@ export default function Home() {
                   </div>
                   <p className="helper-text">
                     제출 인정 기준: 본문 전체를 한 번에 녹음하고, 미리듣기로 음성이 들리는지 확인하세요.
-                    문제가 있으면 파일 제출을 사용할 수 있습니다.
+                    모든 문단 듣기 후 충분히 녹음하면 A+, 듣기 없이 정상 녹음하면 A, 녹음이 지나치게
+                    짧으면 B, 미제출은 선생님 화면에서 F로 표시됩니다.
                   </p>
                 </div>
               </>

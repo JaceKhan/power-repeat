@@ -25,6 +25,9 @@ export async function POST(request: Request) {
       assignmentId: String(formData.get("assignmentId") ?? ""),
       studentId: user.studentId,
       durationSec: Number(formData.get("durationSec") ?? 0),
+      prepCompleted: String(formData.get("prepCompleted") ?? "") === "true",
+      completedPrepSegments: Number(formData.get("completedPrepSegments") ?? 0),
+      totalPrepSegments: Number(formData.get("totalPrepSegments") ?? 0),
       audio
     });
 

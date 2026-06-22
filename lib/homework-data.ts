@@ -18,6 +18,10 @@ export type Submission = {
   assignmentId: string;
   studentId: string;
   studentName: string;
+  grade: "A+" | "A" | "B";
+  prepCompleted: boolean;
+  completedPrepSegments: number;
+  totalPrepSegments: number;
   audioUrl: string;
   audioFileName: string;
   audioContentType: string;
@@ -58,6 +62,9 @@ type CreateSubmissionInput = {
   assignmentId: string;
   studentId: string;
   durationSec: number;
+  prepCompleted: boolean;
+  completedPrepSegments: number;
+  totalPrepSegments: number;
   audio: File;
 };
 
@@ -109,6 +116,57 @@ const contentTypeToExtension: Record<string, string> = {
   "audio/x-m4a": "m4a"
 };
 
+const estimateReadingDurationSec = (passage: string) => {
+  const words = passage.trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(Math.round((words / 135) * 60), 8);
+};
+
+const calculateSubmissionGrade = ({
+  passage,
+  durationSec,
+  prepCompleted
+}: {
+  passage: string;
+  durationSec: number;
+  prepCompleted: boolean;
+}): Submission["grade"] => {
+  const expectedDurationSec = estimateReadingDurationSec(passage);
+
+  if (durationSec < expectedDurationSec * 0.5) {
+    return "B";
+  }
+
+  return prepCompleted ? "A+" : "A";
+};
+
+const normalizeSubmission = (submission: Submission, assignments: Assignment[]): Submission => {
+  const assignment = assignments.find((item) => item.id === submission.assignmentId);
+  const totalPrepSegments = Number.isFinite(submission.totalPrepSegments)
+    ? submission.totalPrepSegments
+    : 0;
+  const completedPrepSegments = Number.isFinite(submission.completedPrepSegments)
+    ? submission.completedPrepSegments
+    : 0;
+  const prepCompleted =
+    typeof submission.prepCompleted === "boolean"
+      ? submission.prepCompleted
+      : totalPrepSegments > 0 && completedPrepSegments >= totalPrepSegments;
+
+  return {
+    ...submission,
+    totalPrepSegments,
+    completedPrepSegments,
+    prepCompleted,
+    grade:
+      submission.grade ??
+      calculateSubmissionGrade({
+        passage: assignment?.passage ?? "",
+        durationSec: submission.durationSec,
+        prepCompleted
+      })
+  };
+};
+
 const cloneInitialData = (): StoredHomeworkData => JSON.parse(JSON.stringify(initialData));
 
 const ensureStorage = async () => {
@@ -126,9 +184,14 @@ const readData = async (): Promise<StoredHomeworkData> => {
   const raw = await fs.readFile(DB_FILE, "utf8");
   const parsed = JSON.parse(raw) as Partial<StoredHomeworkData>;
 
+  const assignments = Array.isArray(parsed.assignments) ? parsed.assignments : seedAssignments;
+  const submissions = Array.isArray(parsed.submissions)
+    ? parsed.submissions.map((submission) => normalizeSubmission(submission, assignments))
+    : [];
+
   return {
-    assignments: Array.isArray(parsed.assignments) ? parsed.assignments : seedAssignments,
-    submissions: Array.isArray(parsed.submissions) ? parsed.submissions : []
+    assignments,
+    submissions
   };
 };
 
@@ -238,15 +301,31 @@ export const createSubmission = async (input: CreateSubmissionInput) => {
   const audioBuffer = Buffer.from(await input.audio.arrayBuffer());
   await fs.writeFile(audioPath, audioBuffer);
 
+  const durationSec = Math.max(Math.round(input.durationSec), 1);
+  const totalPrepSegments = Math.max(Math.round(input.totalPrepSegments), 0);
+  const completedPrepSegments = Math.min(
+    Math.max(Math.round(input.completedPrepSegments), 0),
+    totalPrepSegments
+  );
+  const prepCompleted = totalPrepSegments > 0 && completedPrepSegments >= totalPrepSegments;
+
   const submission: Submission = {
     id: `sub-${randomUUID()}`,
     assignmentId,
     studentId,
     studentName: student.name,
+    grade: calculateSubmissionGrade({
+      passage: assignment.passage,
+      durationSec,
+      prepCompleted
+    }),
+    prepCompleted,
+    completedPrepSegments,
+    totalPrepSegments,
     audioUrl: `/api/audio/${audioFileName}`,
     audioFileName,
     audioContentType: input.audio.type || "audio/webm",
-    durationSec: Math.max(Math.round(input.durationSec), 1),
+    durationSec,
     submittedAt: new Date().toISOString(),
     status: "submitted"
   };
