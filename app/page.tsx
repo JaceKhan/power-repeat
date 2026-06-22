@@ -18,6 +18,7 @@ type PrepSegment = {
 
 const DEFAULT_FORM_DUE_DATE = "2026-06-24";
 const TARGET_PREP_SEGMENT_LENGTH = 150;
+const MAX_PREP_SEGMENTS = 10;
 
 const formatDateTime = (value: string) =>
   new Intl.DateTimeFormat("ko-KR", {
@@ -53,6 +54,11 @@ const blobToDataUrl = (blob: Blob) =>
   });
 
 const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
+  const normalizedPassage = passage.replace(/\s+/g, " ").trim();
+  const targetLength = Math.max(
+    TARGET_PREP_SEGMENT_LENGTH,
+    Math.ceil(normalizedPassage.length / MAX_PREP_SEGMENTS)
+  );
   const sentences = passage
     .replace(/\s+/g, " ")
     .trim()
@@ -65,7 +71,7 @@ const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
 
   sentences.forEach((sentence) => {
     const next = current ? `${current} ${sentence}` : sentence;
-    if (current && next.length > TARGET_PREP_SEGMENT_LENGTH) {
+    if (current && next.length > targetLength) {
       segments.push(current);
       current = sentence;
     } else {
@@ -75,6 +81,15 @@ const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
 
   if (current) {
     segments.push(current);
+  }
+
+  while (segments.length > MAX_PREP_SEGMENTS) {
+    const last = segments.pop();
+    if (!last) {
+      break;
+    }
+
+    segments[segments.length - 1] = `${segments[segments.length - 1]} ${last}`;
   }
 
   return segments.map((text, index) => ({
@@ -760,7 +775,7 @@ export default function Home() {
                         <span>제출 {formatDateTime(submission.submittedAt)}</span>
                         <span>길이 {formatDuration(submission.durationSec)}</span>
                         <span>
-                          문단 듣기 {submission.completedPrepSegments ?? 0}/
+                          구간 듣기 {submission.completedPrepSegments ?? 0}/
                           {submission.totalPrepSegments ?? 0}
                         </span>
                       </div>
@@ -892,7 +907,7 @@ export default function Home() {
                   <div>
                     <strong>먼저 듣고 따라 읽기</strong>
                     <p>
-                      본문을 약 150자 전후 문단으로 나눴습니다. 모든 문단을 끝까지 들으면 A+
+                      본문을 약 150자 전후 듣기 구간으로 나눴습니다. 모든 구간을 끝까지 들으면 A+
                       준비 표시가 됩니다.
                     </p>
                   </div>
@@ -910,7 +925,7 @@ export default function Home() {
                 <div className="prep-panel">
                   <div className="prep-summary">
                     <div>
-                      <strong>문단 듣기 완료</strong>
+                      <strong>구간 듣기 완료</strong>
                       <span>
                         {completedSegmentIds.length}/{prepSegments.length}
                       </span>
@@ -933,7 +948,7 @@ export default function Home() {
                           type="button"
                           onClick={() => playNativePronunciation(segment.text, segment.id)}
                         >
-                          <span>{index + 1}번 문단 듣기</span>
+                          <span>{index + 1}번 구간 듣기</span>
                           <p>{segment.text}</p>
                           <small>
                             {isCompleted ? "완료 - A+ 준비에 반영됨" : "클릭해서 끝까지 듣기"}
@@ -966,7 +981,7 @@ export default function Home() {
                       제출 등급 {currentSubmission.grade}
                     </strong>
                     <span>
-                      문단 듣기 {currentSubmission.completedPrepSegments ?? 0}/
+                      구간 듣기 {currentSubmission.completedPrepSegments ?? 0}/
                       {currentSubmission.totalPrepSegments ?? 0}
                     </span>
                     <audio controls src={currentSubmission.audioUrl} />
@@ -1010,7 +1025,7 @@ export default function Home() {
                   </div>
                   <p className="helper-text">
                     제출 인정 기준: 본문 전체를 한 번에 녹음하고, 미리듣기로 음성이 들리는지 확인하세요.
-                    모든 문단 듣기 후 충분히 녹음하면 A+, 듣기 없이 정상 녹음하면 A, 녹음이 지나치게
+                    모든 구간 듣기 후 충분히 녹음하면 A+, 듣기 없이 정상 녹음하면 A, 녹음이 지나치게
                     짧으면 B, 미제출은 선생님 화면에서 F로 표시됩니다.
                   </p>
                 </div>
