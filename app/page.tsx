@@ -52,11 +52,13 @@ const seedAssignments: Assignment[] = [
       "A tiny seed slept under the ground. Every morning, the sun warmed the soil. One day, rain fell softly, and the seed began to grow. It pushed up a small green leaf and looked at the bright sky.",
     instructions:
       "본문을 2번 연습한 뒤 한 번에 끝까지 읽어 녹음하세요. 너무 빠르게 읽기보다 또렷한 발음과 자연스러운 억양을 신경 써 주세요.",
-    dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 2).toISOString().slice(0, 10),
-    createdAt: new Date().toISOString(),
+    dueDate: "2026-06-24",
+    createdAt: "2026-06-22T00:00:00.000Z",
     teacherName: "Jamie Teacher"
   }
 ];
+
+const DEFAULT_FORM_DUE_DATE = seedAssignments[0].dueDate;
 
 const formatDateTime = (value: string) =>
   new Intl.DateTimeFormat("ko-KR", {
@@ -93,7 +95,7 @@ export default function Home() {
   const [form, setForm] = useState({
     title: "Storybook Reading",
     className: "CHESS Reading A",
-    dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 3).toISOString().slice(0, 10),
+    dueDate: DEFAULT_FORM_DUE_DATE,
     passage: "",
     instructions: "본문 전체를 또렷하게 읽고, 제출 전 반드시 미리듣기로 확인하세요."
   });
