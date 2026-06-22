@@ -28,6 +28,7 @@ export async function GET() {
   return NextResponse.json({
     assignments,
     submissions,
+    classes: [],
     students: currentStudent ? [currentStudent] : [],
     templates: [],
     currentUser: user
