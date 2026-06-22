@@ -556,6 +556,25 @@ textarea:focus {
   margin: 0;
 }
 
+.shadow-word {
+  border-radius: 6px;
+  padding: 1px 2px;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.shadow-word.current {
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-weight: 900;
+}
+
+.shadow-word.passed {
+  color: #15803d;
+  font-weight: 800;
+}
+
 .listening-tools {
   align-items: center;
   background: #fff7ed;

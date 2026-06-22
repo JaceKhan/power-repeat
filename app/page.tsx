@@ -19,6 +19,8 @@ type PrepSegment = {
 const DEFAULT_FORM_DUE_DATE = "2026-06-24";
 const TARGET_PREP_SEGMENT_LENGTH = 150;
 const MAX_PREP_SEGMENTS = 10;
+const SHADOW_WORDS_PER_MINUTE = 150;
+const SPEECH_RATE = 0.88;
 
 const formatDateTime = (value: string) =>
   new Intl.DateTimeFormat("ko-KR", {
@@ -98,6 +100,11 @@ const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
   }));
 };
 
+const getWordCount = (text: string) => text.match(/\S+/g)?.length ?? 0;
+
+const getWordIndexAtCharacter = (text: string, charIndex: number) =>
+  getWordCount(text.slice(0, Math.max(charIndex, 0)).trim());
+
 export default function Home() {
   const [activeRole, setActiveRole] = useState<"teacher" | "student">("teacher");
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
@@ -113,6 +120,7 @@ export default function Home() {
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speakingSegmentId, setSpeakingSegmentId] = useState<string | null>(null);
+  const [highlightedWordIndex, setHighlightedWordIndex] = useState(-1);
   const [completedPrepSegments, setCompletedPrepSegments] = useState<Record<string, string[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -133,6 +141,7 @@ export default function Home() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const timerRef = useRef<number | null>(null);
+  const shadowTimerRef = useRef<number | null>(null);
   const speechTokenRef = useRef(0);
 
   const selectedStudent = useMemo(
@@ -247,6 +256,9 @@ export default function Home() {
 
   useEffect(
     () => () => {
+      if (shadowTimerRef.current) {
+        window.clearInterval(shadowTimerRef.current);
+      }
       window.speechSynthesis?.cancel();
     },
     []
@@ -314,6 +326,35 @@ export default function Home() {
     recorderRef.current = null;
   };
 
+  const clearShadowTimer = () => {
+    if (shadowTimerRef.current) {
+      window.clearInterval(shadowTimerRef.current);
+      shadowTimerRef.current = null;
+    }
+  };
+
+  const startShadowTimer = (text: string, speechToken: number) => {
+    clearShadowTimer();
+
+    const wordCount = getWordCount(text);
+    if (wordCount === 0) {
+      setHighlightedWordIndex(-1);
+      return;
+    }
+
+    setHighlightedWordIndex(0);
+    const msPerWord = Math.max(240, Math.round(60000 / (SHADOW_WORDS_PER_MINUTE * SPEECH_RATE)));
+
+    shadowTimerRef.current = window.setInterval(() => {
+      if (speechTokenRef.current !== speechToken) {
+        clearShadowTimer();
+        return;
+      }
+
+      setHighlightedWordIndex((current) => Math.min(current + 1, wordCount - 1));
+    }, msPerWord);
+  };
+
   const playNativePronunciation = (text?: string, segmentId?: string) => {
     if (!selectedAssignment) {
       return;
@@ -334,7 +375,8 @@ export default function Home() {
     speechTokenRef.current = speechToken;
     window.speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(text ?? selectedAssignment.passage);
+    const speechText = text ?? selectedAssignment.passage;
+    const utterance = new SpeechSynthesisUtterance(speechText);
     const voices = window.speechSynthesis.getVoices();
     const preferredVoice =
       voices.find((voice) => voice.lang === "en-US" && /google|samantha|zira|natural/i.test(voice.name)) ??
@@ -342,18 +384,27 @@ export default function Home() {
       voices.find((voice) => voice.lang.startsWith("en"));
 
     utterance.lang = "en-US";
-    utterance.rate = 0.88;
+    utterance.rate = SPEECH_RATE;
     utterance.pitch = 1;
     if (preferredVoice) {
       utterance.voice = preferredVoice;
     }
+    utterance.onboundary = (event) => {
+      if (speechTokenRef.current !== speechToken || event.charIndex < 0) {
+        return;
+      }
+
+      setHighlightedWordIndex(getWordIndexAtCharacter(speechText, event.charIndex));
+    };
     utterance.onend = () => {
       if (speechTokenRef.current !== speechToken) {
         return;
       }
 
+      clearShadowTimer();
       setIsSpeaking(false);
       setSpeakingSegmentId(null);
+      setHighlightedWordIndex(-1);
 
       if (segmentId) {
         setCompletedPrepSegments((current) => {
@@ -374,21 +425,26 @@ export default function Home() {
         return;
       }
 
+      clearShadowTimer();
       setIsSpeaking(false);
       setSpeakingSegmentId(null);
+      setHighlightedWordIndex(-1);
       setNotice("본문 듣기 재생에 실패했습니다. 브라우저 음성 설정을 확인해 주세요.");
     };
 
     setIsSpeaking(true);
     setSpeakingSegmentId(nextSpeakingSegmentId);
+    startShadowTimer(speechText, speechToken);
     window.speechSynthesis.speak(utterance);
   };
 
   const stopNativePronunciation = () => {
     speechTokenRef.current += 1;
+    clearShadowTimer();
     window.speechSynthesis?.cancel();
     setIsSpeaking(false);
     setSpeakingSegmentId(null);
+    setHighlightedWordIndex(-1);
   };
 
   const login = async (event: FormEvent<HTMLFormElement>) => {
@@ -549,6 +605,31 @@ export default function Home() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const renderShadowText = (text: string, isActive: boolean) => {
+    let wordIndex = -1;
+
+    return text.split(/(\s+)/).map((token, tokenIndex) => {
+      if (!token.trim()) {
+        return token;
+      }
+
+      wordIndex += 1;
+      const className = isActive
+        ? wordIndex < highlightedWordIndex
+          ? "shadow-word passed"
+          : wordIndex === highlightedWordIndex
+            ? "shadow-word current"
+            : "shadow-word"
+        : "shadow-word";
+
+      return (
+        <span className={className} key={`${token}-${tokenIndex}`}>
+          {token}
+        </span>
+      );
+    });
   };
 
   return (
@@ -919,7 +1000,7 @@ export default function Home() {
                   <span className="badge">마감 {selectedAssignment.dueDate}</span>
                 </div>
                 <div className="passage-box">
-                  <p>{selectedAssignment.passage}</p>
+                  <p>{renderShadowText(selectedAssignment.passage, speakingSegmentId === "full")}</p>
                 </div>
                 <div className="listening-tools">
                   <div>
@@ -967,7 +1048,7 @@ export default function Home() {
                           onClick={() => playNativePronunciation(segment.text, segment.id)}
                         >
                           <span>{index + 1}번 구간 듣기</span>
-                          <p>{segment.text}</p>
+                          <p>{renderShadowText(segment.text, isActive)}</p>
                           <small>
                             {isActive
                               ? "재생 중 - 다시 누르면 멈춤"
