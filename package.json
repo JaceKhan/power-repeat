@@ -1,0 +1,36 @@
+{
+  "name": "power-repeat",
+  "version": "1.0.0",
+  "description": "Reading homework recording and submission web app",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JaceKhan/power-repeat.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/JaceKhan/power-repeat/issues"
+  },
+  "homepage": "https://github.com/JaceKhan/power-repeat#readme",
+  "dependencies": {
+    "next": "^16.2.9",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^10.5.0",
+    "eslint-config-next": "^16.2.9",
+    "typescript": "^6.0.3"
+  }
+}
