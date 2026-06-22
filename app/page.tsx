@@ -93,6 +93,7 @@ const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
 
 export default function Home() {
   const [activeRole, setActiveRole] = useState<"teacher" | "student">("teacher");
+  const [teacherCategory, setTeacherCategory] = useState<"content" | "roster">("content");
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
   const [demoUsers, setDemoUsers] = useState<LoginDemoUser[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -750,8 +751,44 @@ export default function Home() {
       ) : null}
 
       {currentUser && activeRole === "teacher" ? (
-        <section className="grid teacher-grid">
-          <article className="panel">
+        <>
+          <nav className="teacher-category-tabs" aria-label="선생님 관리 카테고리">
+            <button
+              className={teacherCategory === "content" ? "active" : ""}
+              type="button"
+              onClick={() => setTeacherCategory("content")}
+            >
+              컨텐츠 관리
+            </button>
+            <button
+              className={teacherCategory === "roster" ? "active" : ""}
+              type="button"
+              onClick={() => setTeacherCategory("roster")}
+            >
+              반/학생 관리
+            </button>
+          </nav>
+          <section className={`grid teacher-grid teacher-category-${teacherCategory}`}>
+            <aside className="panel teacher-side-panel">
+              <p className="eyebrow">{teacherCategory === "content" ? "Content" : "Roster"}</p>
+              <h2>{teacherCategory === "content" ? "컨텐츠 관리" : "반/학생 관리"}</h2>
+              <nav>
+                {teacherCategory === "content" ? (
+                  <>
+                    <a href="#assignment-create">과제 할당하기</a>
+                    <a href="#template-library">템플릿 불러오기</a>
+                  </>
+                ) : (
+                  <>
+                    <a href="#assignment-status">과제 제출 현황</a>
+                    <a href="#submission-review">녹음 제출 검토</a>
+                    <a href="#roster-manage">반/학생 등록</a>
+                    <a href="#roster-list">반별 학생 목록</a>
+                  </>
+                )}
+              </nav>
+            </aside>
+          <article className="panel teacher-content-panel" id="assignment-create">
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">Teacher</p>
@@ -843,7 +880,7 @@ export default function Home() {
             </form>
           </article>
 
-          <article className="panel">
+          <article className="panel teacher-content-panel" id="template-library">
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">Templates</p>
@@ -873,7 +910,7 @@ export default function Home() {
             </div>
           </article>
 
-          <article className="panel wide">
+          <article className="panel wide teacher-roster-panel teacher-roster-manage" id="roster-manage">
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">Roster</p>
@@ -954,7 +991,7 @@ export default function Home() {
                 </button>
               </form>
             </div>
-            <div className="roster-list">
+            <div className="roster-list" id="roster-list">
               {classes.map((classGroup) => {
                 const classStudents = students.filter((student) => student.className === classGroup.name);
 
@@ -979,7 +1016,7 @@ export default function Home() {
             </div>
           </article>
 
-          <article className="panel wide">
+          <article className="panel wide teacher-roster-panel teacher-roster-status" id="assignment-status">
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">Management</p>
@@ -1027,7 +1064,7 @@ export default function Home() {
             </div>
           </article>
 
-          <article className="panel wide">
+          <article className="panel wide teacher-roster-panel teacher-roster-review" id="submission-review">
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">Review</p>
@@ -1125,6 +1162,7 @@ export default function Home() {
             </div>
           </article>
         </section>
+        </>
       ) : currentUser ? (
         <section className="grid student-grid">
           <article className="panel">

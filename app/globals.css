@@ -232,8 +232,84 @@ audio {
   gap: 20px;
 }
 
+.teacher-category-tabs {
+  background: #e9eefb;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  display: inline-flex;
+  gap: 6px;
+  margin-bottom: 20px;
+  padding: 6px;
+}
+
+.teacher-category-tabs button {
+  background: transparent;
+  border: 0;
+  border-radius: 16px;
+  color: var(--muted);
+  font-weight: 900;
+  padding: 12px 18px;
+}
+
+.teacher-category-tabs button.active {
+  background: white;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  color: var(--foreground);
+}
+
 .teacher-grid {
-  grid-template-columns: minmax(0, 1fr) 420px;
+  grid-template-columns: 240px minmax(0, 1fr);
+}
+
+.teacher-side-panel {
+  position: sticky;
+  top: 16px;
+}
+
+.teacher-side-panel h2 {
+  font-size: 22px;
+  letter-spacing: -0.04em;
+  margin: 8px 0 18px;
+}
+
+.teacher-side-panel nav {
+  display: grid;
+  gap: 8px;
+}
+
+.teacher-side-panel a {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--foreground);
+  font-weight: 900;
+  padding: 12px;
+  text-decoration: none;
+}
+
+.teacher-grid > .panel:not(.teacher-side-panel) {
+  grid-column: 2;
+}
+
+.teacher-grid .panel.wide {
+  grid-column: 2;
+}
+
+.teacher-category-content .teacher-roster-panel,
+.teacher-category-roster .teacher-content-panel {
+  display: none;
+}
+
+.teacher-roster-status {
+  order: 1;
+}
+
+.teacher-roster-review {
+  order: 2;
+}
+
+.teacher-roster-manage {
+  order: 3;
 }
 
 .student-grid {
@@ -819,6 +895,15 @@ textarea:focus {
 
   .student-grid .panel.wide {
     grid-column: 1 / -1;
+  }
+
+  .teacher-grid > .panel:not(.teacher-side-panel),
+  .teacher-grid .panel.wide {
+    grid-column: 1 / -1;
+  }
+
+  .teacher-side-panel {
+    position: static;
   }
 
   .listening-tools {
