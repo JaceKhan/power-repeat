@@ -203,6 +203,32 @@ audio {
   margin: 0;
 }
 
+.login-card-grid {
+  display: grid;
+  gap: 14px;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.login-card {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 18px;
+}
+
+.login-card h3 {
+  margin: 4px 0 0;
+}
+
+.login-card small,
+.helper-note {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+
 .demo-grid {
   display: grid;
   gap: 10px;
@@ -556,6 +582,20 @@ textarea:focus {
   color: var(--muted);
 }
 
+.student-login-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.student-login-row strong {
+  background: #eef2ff;
+  border-radius: 999px;
+  color: #273b77;
+  padding: 4px 8px;
+}
+
 .assignment-card {
   align-items: center;
   background: #f8fafc;
@@ -884,6 +924,7 @@ textarea:focus {
   .teacher-grid,
   .student-grid,
   .roster-grid,
+  .login-card-grid,
   .auth-panel,
   .two-columns {
     grid-template-columns: 1fr;

@@ -127,12 +127,15 @@ export default function Home() {
   const [studentForm, setStudentForm] = useState({
     name: "",
     className: "CHESS Reading A",
-    email: "",
-    password: "student123"
+    email: ""
   });
   const [loginForm, setLoginForm] = useState({
     email: "teacher@powerrepeat.test",
     password: "teacher123"
+  });
+  const [studentLoginForm, setStudentLoginForm] = useState({
+    studentName: "김민준",
+    loginCode: "1234"
   });
   const [feedbackDraft, setFeedbackDraft] = useState<Record<string, string>>({});
   const [scoreDraft, setScoreDraft] = useState<Record<string, number>>({});
@@ -259,6 +262,11 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const rememberedStudentName = window.localStorage.getItem("power-repeat-student-name");
+    if (rememberedStudentName) {
+      setStudentLoginForm((current) => ({ ...current, studentName: rememberedStudentName }));
+    }
+
     void loadState();
   }, [loadState]);
 
@@ -440,6 +448,37 @@ export default function Home() {
     }
   };
 
+  const studentQuickLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!studentLoginForm.studentName.trim() || !/^\d{4}$/.test(studentLoginForm.loginCode)) {
+      setNotice("학생 이름과 4자리 코드를 입력해 주세요.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(studentLoginForm)
+      });
+
+      if (!response.ok) {
+        throw new Error("student login failed");
+      }
+
+      window.localStorage.setItem("power-repeat-student-name", studentLoginForm.studentName.trim());
+      await loadState();
+      setNotice("학생으로 로그인되었습니다.");
+    } catch {
+      setNotice("학생 로그인에 실패했습니다. 이름과 4자리 코드를 확인해 주세요.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     setCurrentUser(null);
@@ -590,8 +629,8 @@ export default function Home() {
 
   const createStudent = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!studentForm.name.trim() || !studentForm.email.trim() || !studentForm.password.trim()) {
-      setNotice("학생 이름, 이메일, 비밀번호를 입력해 주세요.");
+    if (!studentForm.name.trim()) {
+      setNotice("학생 이름을 입력해 주세요.");
       return;
     }
 
@@ -612,11 +651,10 @@ export default function Home() {
       setStudentForm((current) => ({
         ...current,
         name: "",
-        email: "",
-        password: "student123"
+        email: ""
       }));
       await loadState();
-      setNotice("학생 계정이 등록되었습니다. 학생은 등록된 이메일과 비밀번호로 로그인할 수 있습니다.");
+      setNotice("학생이 등록되었습니다. 자동 생성된 4자리 코드로 로그인할 수 있습니다.");
     } catch {
       setNotice("학생 등록에 실패했습니다. 이메일 중복이나 반 선택을 확인해 주세요.");
     } finally {
@@ -700,38 +738,81 @@ export default function Home() {
         <section className="panel auth-panel">
           <div>
             <p className="eyebrow">Login</p>
-            <h2>데모 계정으로 로그인</h2>
+            <h2>로그인</h2>
             <p>
-              선생님과 학생 권한을 분리했습니다. 아래 데모 계정 중 하나를 선택하거나 직접 입력해
-              로그인하세요.
+              학생은 이름과 4자리 코드로 간편하게 들어가고, 선생님은 이메일과 비밀번호로
+              로그인합니다.
             </p>
           </div>
-          <form className="stack" onSubmit={login}>
-            <label>
-              이메일
-              <input
-                autoComplete="email"
-                value={loginForm.email}
-                onChange={(event) =>
-                  setLoginForm((current) => ({ ...current, email: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              비밀번호
-              <input
-                autoComplete="current-password"
-                type="password"
-                value={loginForm.password}
-                onChange={(event) =>
-                  setLoginForm((current) => ({ ...current, password: event.target.value }))
-                }
-              />
-            </label>
-            <button className="primary-button" disabled={isSaving} type="submit">
-              {isSaving ? "로그인 중..." : "로그인"}
-            </button>
-          </form>
+          <div className="login-card-grid">
+            <form className="stack login-card" onSubmit={studentQuickLogin}>
+              <div>
+                <p className="eyebrow">Student</p>
+                <h3>학생 간편 로그인</h3>
+              </div>
+              <label>
+                학생 이름
+                <input
+                  autoComplete="name"
+                  value={studentLoginForm.studentName}
+                  onChange={(event) =>
+                    setStudentLoginForm((current) => ({ ...current, studentName: event.target.value }))
+                  }
+                  placeholder="예: 김민준"
+                />
+              </label>
+              <label>
+                4자리 코드
+                <input
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={studentLoginForm.loginCode}
+                  onChange={(event) =>
+                    setStudentLoginForm((current) => ({
+                      ...current,
+                      loginCode: event.target.value.replace(/\D/g, "").slice(0, 4)
+                    }))
+                  }
+                  placeholder="예: 1234"
+                />
+              </label>
+              <button className="primary-button" disabled={isSaving} type="submit">
+                {isSaving ? "로그인 중..." : "학생 로그인"}
+              </button>
+              <small>학생 이름은 이 브라우저에 기억됩니다.</small>
+            </form>
+            <form className="stack login-card" onSubmit={login}>
+              <div>
+                <p className="eyebrow">Teacher</p>
+                <h3>선생님 로그인</h3>
+              </div>
+              <label>
+                이메일
+                <input
+                  autoComplete="username"
+                  value={loginForm.email}
+                  onChange={(event) =>
+                    setLoginForm((current) => ({ ...current, email: event.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                비밀번호
+                <input
+                  autoComplete="current-password"
+                  type="password"
+                  value={loginForm.password}
+                  onChange={(event) =>
+                    setLoginForm((current) => ({ ...current, password: event.target.value }))
+                  }
+                />
+              </label>
+              <button className="primary-button" disabled={isSaving} type="submit">
+                {isSaving ? "로그인 중..." : "선생님 로그인"}
+              </button>
+            </form>
+          </div>
           <div className="demo-grid">
             {demoUsers.map((user) => (
               <button
@@ -964,30 +1045,21 @@ export default function Home() {
                     </select>
                   </label>
                 </div>
-                <div className="two-columns">
-                  <label>
-                    로그인 이메일
-                    <input
-                      value={studentForm.email}
-                      onChange={(event) =>
-                        setStudentForm((current) => ({ ...current, email: event.target.value }))
-                      }
-                      placeholder="예: gildong@example.com"
-                    />
-                  </label>
-                  <label>
-                    임시 비밀번호
-                    <input
-                      value={studentForm.password}
-                      onChange={(event) =>
-                        setStudentForm((current) => ({ ...current, password: event.target.value }))
-                      }
-                      placeholder="예: student123"
-                    />
-                  </label>
-                </div>
+                <label>
+                  이메일 또는 메모, 선택
+                  <input
+                    value={studentForm.email}
+                    onChange={(event) =>
+                      setStudentForm((current) => ({ ...current, email: event.target.value }))
+                    }
+                    placeholder="선택사항: 학생/학부모 이메일"
+                  />
+                </label>
+                <p className="helper-note">
+                  학생을 추가하면 4자리 로그인 코드가 자동 생성됩니다. 학생은 이름과 코드로 로그인합니다.
+                </p>
                 <button disabled={isSaving} type="submit">
-                  학생 계정 추가
+                  학생 추가 및 코드 생성
                 </button>
               </form>
             </div>
@@ -1002,8 +1074,10 @@ export default function Home() {
                     <div>
                       {classStudents.length ? (
                         classStudents.map((student) => (
-                          <small key={student.id}>
-                            {student.name} · {student.email}
+                          <small className="student-login-row" key={student.id}>
+                            <span>{student.name}</span>
+                            <strong>코드 {student.loginCode}</strong>
+                            {student.email ? <span>{student.email}</span> : null}
                           </small>
                         ))
                       ) : (

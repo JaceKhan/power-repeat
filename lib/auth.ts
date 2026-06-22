@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import type { NextResponse } from "next/server";
-import { findStudentByCredentials } from "@/lib/homework-data";
+import { findStudentByCredentials, findStudentByNameAndCode } from "@/lib/homework-data";
 
 export type UserRole = "teacher" | "student";
 
@@ -78,6 +78,22 @@ export const authenticateDemoUser = async (email: string, password: string) => {
   }
 
   const student = await findStudentByCredentials(email, password);
+  if (!student) {
+    return null;
+  }
+
+  return {
+    id: `u-${student.id}`,
+    email: student.email,
+    name: student.name,
+    role: "student",
+    studentId: student.id,
+    className: student.className
+  } satisfies SessionUser;
+};
+
+export const authenticateStudentByNameAndCode = async (name: string, loginCode: string) => {
+  const student = await findStudentByNameAndCode(name, loginCode);
   if (!student) {
     return null;
   }

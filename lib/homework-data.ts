@@ -60,6 +60,7 @@ export type Student = {
   className: string;
   email: string;
   password: string;
+  loginCode: string;
   active: boolean;
   createdAt: string;
 };
@@ -109,8 +110,8 @@ type CreateClassInput = {
 type CreateStudentInput = {
   name: string;
   className: string;
-  email: string;
-  password: string;
+  email?: string;
+  password?: string;
 };
 
 type ReviewSubmissionInput = {
@@ -135,6 +136,7 @@ const seedStudents: Student[] = [
     className: "CHESS Reading A",
     email: "minjun@powerrepeat.test",
     password: "student123",
+    loginCode: "1234",
     active: true,
     createdAt: "2026-06-22T00:00:00.000Z"
   },
@@ -144,6 +146,7 @@ const seedStudents: Student[] = [
     className: "CHESS Reading A",
     email: "seoyeon@powerrepeat.test",
     password: "student123",
+    loginCode: "2345",
     active: true,
     createdAt: "2026-06-22T00:00:00.000Z"
   },
@@ -153,6 +156,7 @@ const seedStudents: Student[] = [
     className: "CHESS Reading B",
     email: "jiwoo@powerrepeat.test",
     password: "student123",
+    loginCode: "3456",
     active: true,
     createdAt: "2026-06-22T00:00:00.000Z"
   },
@@ -162,6 +166,7 @@ const seedStudents: Student[] = [
     className: "CHESS Reading B",
     email: "doyoon@powerrepeat.test",
     password: "student123",
+    loginCode: "4567",
     active: true,
     createdAt: "2026-06-22T00:00:00.000Z"
   }
@@ -288,6 +293,20 @@ const normalizeStudent = (student: Student): Student => {
   const fallbackEmail = `${student.name || student.id || "student"}@powerrepeat.test`
     .replace(/\s+/g, "")
     .toLowerCase();
+  const knownSeedCodes: Record<string, string> = {
+    "s-1": "1234",
+    "s-2": "2345",
+    "s-3": "3456",
+    "s-4": "4567"
+  };
+  const fallbackCode = String(
+    1000 +
+      (Array.from(student.id || student.name || "student").reduce(
+        (sum, char) => sum + char.charCodeAt(0),
+        0
+      ) %
+        9000)
+  );
 
   return {
     id: student.id || `s-${randomUUID()}`,
@@ -295,9 +314,25 @@ const normalizeStudent = (student: Student): Student => {
     className: student.className?.trim() || seedClasses[0].name,
     email: student.email?.trim().toLowerCase() || fallbackEmail,
     password: student.password || "student123",
+    loginCode: /^\d{4}$/.test(student.loginCode ?? "")
+      ? student.loginCode
+      : (knownSeedCodes[student.id] ?? fallbackCode),
     active: typeof student.active === "boolean" ? student.active : true,
     createdAt: student.createdAt || new Date().toISOString()
   };
+};
+
+const generateLoginCode = (students: Student[]) => {
+  const usedCodes = new Set(students.map((student) => student.loginCode));
+
+  for (let attempt = 0; attempt < 9000; attempt += 1) {
+    const code = String(1000 + Math.floor(Math.random() * 9000));
+    if (!usedCodes.has(code)) {
+      return code;
+    }
+  }
+
+  throw new Error("no available login code");
 };
 
 const normalizeSubmission = (submission: Submission, assignments: Assignment[]): Submission => {
@@ -497,9 +532,12 @@ export const createClassGroup = async (input: CreateClassInput) => {
 export const createStudent = async (input: CreateStudentInput) => {
   const name = assertText(input.name, "name");
   const className = assertText(input.className, "className");
-  const email = assertText(input.email, "email").toLowerCase();
-  const password = assertText(input.password, "password");
   const data = await readData();
+  const loginCode = generateLoginCode(data.students);
+  const email =
+    input.email?.trim().toLowerCase() ||
+    `${name.replace(/\s+/g, "").toLowerCase()}-${loginCode}@powerrepeat.local`;
+  const password = input.password?.trim() || loginCode;
 
   if (!data.classes.some((classGroup) => classGroup.name === className && classGroup.active)) {
     throw new Error("class not found");
@@ -515,6 +553,7 @@ export const createStudent = async (input: CreateStudentInput) => {
     className,
     email,
     password,
+    loginCode,
     active: true,
     createdAt: new Date().toISOString()
   };
@@ -533,6 +572,18 @@ export const findStudentByCredentials = async (email: string, password: string) 
         student.active &&
         student.email.toLowerCase() === email.trim().toLowerCase() &&
         student.password === password
+    ) ?? null
+  );
+};
+
+export const findStudentByNameAndCode = async (name: string, loginCode: string) => {
+  const data = await readData();
+  return (
+    data.students.find(
+      (student) =>
+        student.active &&
+        student.name.trim().toLowerCase() === name.trim().toLowerCase() &&
+        student.loginCode === loginCode.trim()
     ) ?? null
   );
 };
