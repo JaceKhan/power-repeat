@@ -426,6 +426,60 @@ textarea:focus {
   color: var(--muted);
 }
 
+.roster-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+}
+
+.roster-form {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+}
+
+.roster-form h3 {
+  margin: 0;
+}
+
+.roster-form button {
+  background: var(--brand);
+  border: 0;
+  border-radius: 14px;
+  color: white;
+  font-weight: 900;
+  padding: 13px 16px;
+}
+
+.roster-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.roster-class {
+  align-items: start;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 16px;
+}
+
+.roster-class > div {
+  display: grid;
+  gap: 6px;
+  grid-column: 1 / -1;
+}
+
+.roster-class span,
+.roster-class small {
+  color: var(--muted);
+}
+
 .assignment-card {
   align-items: center;
   background: #f8fafc;
@@ -753,6 +807,7 @@ textarea:focus {
   .hero,
   .teacher-grid,
   .student-grid,
+  .roster-grid,
   .auth-panel,
   .two-columns {
     grid-template-columns: 1fr;

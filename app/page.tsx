@@ -2,7 +2,14 @@
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionUser } from "@/lib/auth";
-import type { Assignment, HomeworkState, PassageTemplate, Student, Submission } from "@/lib/homework-data";
+import type {
+  Assignment,
+  ClassGroup,
+  HomeworkState,
+  PassageTemplate,
+  Student,
+  Submission
+} from "@/lib/homework-data";
 
 type RecordingState = "idle" | "recording" | "ready";
 type LoginDemoUser = Pick<SessionUser, "email" | "name" | "role"> & {
@@ -90,6 +97,7 @@ export default function Home() {
   const [demoUsers, setDemoUsers] = useState<LoginDemoUser[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [classes, setClasses] = useState<ClassGroup[]>([]);
   const [templates, setTemplates] = useState<PassageTemplate[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState("");
@@ -111,6 +119,15 @@ export default function Home() {
     dueDate: DEFAULT_FORM_DUE_DATE,
     passage: "",
     instructions: "본문 전체를 또렷하게 읽고, 제출 전 반드시 미리듣기로 확인하세요."
+  });
+  const [classForm, setClassForm] = useState({
+    name: ""
+  });
+  const [studentForm, setStudentForm] = useState({
+    name: "",
+    className: "CHESS Reading A",
+    email: "",
+    password: "student123"
   });
   const [loginForm, setLoginForm] = useState({
     email: "teacher@powerrepeat.test",
@@ -194,6 +211,7 @@ export default function Home() {
         setDemoUsers(authState.demoUsers);
         setAssignments([]);
         setSubmissions([]);
+        setClasses([]);
         setTemplates([]);
         setStudents([]);
         return;
@@ -207,8 +225,21 @@ export default function Home() {
       setActiveRole(state.currentUser.role);
       setAssignments(state.assignments);
       setSubmissions(state.submissions);
+      setClasses(state.classes);
       setTemplates(state.templates);
       setStudents(state.students);
+      setForm((current) => ({
+        ...current,
+        className: state.classes.some((classGroup) => classGroup.name === current.className)
+          ? current.className
+          : (state.classes[0]?.name ?? current.className)
+      }));
+      setStudentForm((current) => ({
+        ...current,
+        className: state.classes.some((classGroup) => classGroup.name === current.className)
+          ? current.className
+          : (state.classes[0]?.name ?? current.className)
+      }));
       setSelectedStudentId((current) =>
         current && state.students.some((student) => student.id === current)
           ? current
@@ -413,6 +444,7 @@ export default function Home() {
     setCurrentUser(null);
     setAssignments([]);
     setSubmissions([]);
+    setClasses([]);
     setTemplates([]);
     setStudents([]);
     setSelectedStudentId("");
@@ -522,6 +554,73 @@ export default function Home() {
       instructions: template.instructions
     }));
     setNotice("저장된 본문 템플릿을 불러왔습니다. 반과 마감일을 확인한 뒤 배정하세요.");
+  };
+
+  const createClass = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!classForm.name.trim()) {
+      setNotice("반 이름을 입력해 주세요.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await fetch("/api/classes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(classForm)
+      });
+
+      if (!response.ok) {
+        throw new Error("class request failed");
+      }
+
+      setClassForm({ name: "" });
+      await loadState();
+      setNotice("새 반이 등록되었습니다.");
+    } catch {
+      setNotice("반 등록에 실패했습니다. 이미 같은 이름의 반이 있는지 확인해 주세요.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const createStudent = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!studentForm.name.trim() || !studentForm.email.trim() || !studentForm.password.trim()) {
+      setNotice("학생 이름, 이메일, 비밀번호를 입력해 주세요.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await fetch("/api/students", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(studentForm)
+      });
+
+      if (!response.ok) {
+        throw new Error("student request failed");
+      }
+
+      setStudentForm((current) => ({
+        ...current,
+        name: "",
+        email: "",
+        password: "student123"
+      }));
+      await loadState();
+      setNotice("학생 계정이 등록되었습니다. 학생은 등록된 이메일과 비밀번호로 로그인할 수 있습니다.");
+    } catch {
+      setNotice("학생 등록에 실패했습니다. 이메일 중복이나 반 선택을 확인해 주세요.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const reviewSubmission = async (submission: Submission, status: Submission["status"]) => {
@@ -701,8 +800,11 @@ export default function Home() {
                       setForm((current) => ({ ...current, className: event.target.value }))
                     }
                   >
-                    <option>CHESS Reading A</option>
-                    <option>CHESS Reading B</option>
+                    {classes.map((classGroup) => (
+                      <option key={classGroup.id} value={classGroup.name}>
+                        {classGroup.name}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label>
@@ -768,6 +870,112 @@ export default function Home() {
               ) : (
                 <p className="empty">아직 저장된 본문 템플릿이 없습니다. 과제를 만들면 자동 저장됩니다.</p>
               )}
+            </div>
+          </article>
+
+          <article className="panel wide">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Roster</p>
+                <h2>반/학생 관리</h2>
+              </div>
+              <span className="badge">
+                {classes.length}개 반 · {students.length}명
+              </span>
+            </div>
+            <div className="roster-grid">
+              <form className="stack roster-form" onSubmit={createClass}>
+                <h3>반 등록</h3>
+                <label>
+                  반 이름
+                  <input
+                    value={classForm.name}
+                    onChange={(event) => setClassForm({ name: event.target.value })}
+                    placeholder="예: 월수금 4시 Reading A"
+                  />
+                </label>
+                <button disabled={isSaving} type="submit">
+                  반 추가
+                </button>
+              </form>
+              <form className="stack roster-form" onSubmit={createStudent}>
+                <h3>학생 등록</h3>
+                <div className="two-columns">
+                  <label>
+                    학생 이름
+                    <input
+                      value={studentForm.name}
+                      onChange={(event) =>
+                        setStudentForm((current) => ({ ...current, name: event.target.value }))
+                      }
+                      placeholder="예: 홍길동"
+                    />
+                  </label>
+                  <label>
+                    반
+                    <select
+                      value={studentForm.className}
+                      onChange={(event) =>
+                        setStudentForm((current) => ({ ...current, className: event.target.value }))
+                      }
+                    >
+                      {classes.map((classGroup) => (
+                        <option key={classGroup.id} value={classGroup.name}>
+                          {classGroup.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="two-columns">
+                  <label>
+                    로그인 이메일
+                    <input
+                      value={studentForm.email}
+                      onChange={(event) =>
+                        setStudentForm((current) => ({ ...current, email: event.target.value }))
+                      }
+                      placeholder="예: gildong@example.com"
+                    />
+                  </label>
+                  <label>
+                    임시 비밀번호
+                    <input
+                      value={studentForm.password}
+                      onChange={(event) =>
+                        setStudentForm((current) => ({ ...current, password: event.target.value }))
+                      }
+                      placeholder="예: student123"
+                    />
+                  </label>
+                </div>
+                <button disabled={isSaving} type="submit">
+                  학생 계정 추가
+                </button>
+              </form>
+            </div>
+            <div className="roster-list">
+              {classes.map((classGroup) => {
+                const classStudents = students.filter((student) => student.className === classGroup.name);
+
+                return (
+                  <div className="roster-class" key={classGroup.id}>
+                    <strong>{classGroup.name}</strong>
+                    <span>{classStudents.length}명</span>
+                    <div>
+                      {classStudents.length ? (
+                        classStudents.map((student) => (
+                          <small key={student.id}>
+                            {student.name} · {student.email}
+                          </small>
+                        ))
+                      ) : (
+                        <small>아직 등록된 학생이 없습니다.</small>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </article>
 

@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import type { NextResponse } from "next/server";
+import { findStudentByCredentials } from "@/lib/homework-data";
 
 export type UserRole = "teacher" | "student";
 
@@ -18,7 +19,7 @@ type DemoUser = SessionUser & {
 };
 
 type SessionPayload = {
-  userId: string;
+  user: SessionUser;
   expiresAt: number;
 };
 
@@ -27,31 +28,13 @@ export const SESSION_COOKIE_NAME = "power-repeat-session";
 const SESSION_MAX_AGE_SEC = 60 * 60 * 8;
 const AUTH_SECRET = process.env.AUTH_SECRET || "power-repeat-development-secret";
 
-const demoUsers: DemoUser[] = [
+const teacherUsers: DemoUser[] = [
   {
     id: "u-teacher-1",
     email: "teacher@powerrepeat.test",
     password: "teacher123",
     name: "Jamie Teacher",
     role: "teacher"
-  },
-  {
-    id: "u-student-1",
-    email: "minjun@powerrepeat.test",
-    password: "student123",
-    name: "김민준",
-    role: "student",
-    studentId: "s-1",
-    className: "CHESS Reading A"
-  },
-  {
-    id: "u-student-3",
-    email: "jiwoo@powerrepeat.test",
-    password: "student123",
-    name: "박지우",
-    role: "student",
-    studentId: "s-3",
-    className: "CHESS Reading B"
   }
 ];
 
@@ -78,24 +61,40 @@ const safeEqual = (left: string, right: string) => {
 };
 
 export const getDemoLoginUsers = () =>
-  demoUsers.map((user) => ({
+  teacherUsers.map((user) => ({
     email: user.email,
     name: user.name,
     role: user.role,
     passwordHint: user.password
   }));
 
-export const authenticateDemoUser = (email: string, password: string) => {
-  const user = demoUsers.find(
+export const authenticateDemoUser = async (email: string, password: string) => {
+  const user = teacherUsers.find(
     (item) => item.email.toLowerCase() === email.trim().toLowerCase() && item.password === password
   );
 
-  return user ? toPublicUser(user) : null;
+  if (user) {
+    return toPublicUser(user);
+  }
+
+  const student = await findStudentByCredentials(email, password);
+  if (!student) {
+    return null;
+  }
+
+  return {
+    id: `u-${student.id}`,
+    email: student.email,
+    name: student.name,
+    role: "student",
+    studentId: student.id,
+    className: student.className
+  } satisfies SessionUser;
 };
 
 export const createSessionToken = (user: SessionUser) => {
   const payload: SessionPayload = {
-    userId: user.id,
+    user,
     expiresAt: Date.now() + SESSION_MAX_AGE_SEC * 1000
   };
   const encodedPayload = base64UrlEncode(JSON.stringify(payload));
@@ -119,8 +118,7 @@ export const verifySessionToken = (token?: string) => {
       return null;
     }
 
-    const user = demoUsers.find((item) => item.id === payload.userId);
-    return user ? toPublicUser(user) : null;
+    return payload.user;
   } catch {
     return null;
   }

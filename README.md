@@ -10,6 +10,8 @@
   - 선생님 전용 과제 생성/피드백 API 권한 검사
   - 학생 본인 녹음 제출만 허용
 - 선생님 모드
+  - 반 등록
+  - 학생 등록 및 학생 로그인 계정 생성
   - 책이름 / Level / 본문제목으로 외부 교재 본문 분류
   - Level 1~6 버튼 선택
   - 만든 본문을 템플릿으로 자동 저장
@@ -65,6 +67,8 @@ npm run dev
 | 학생 | `minjun@powerrepeat.test` | `student123` |
 | 학생 | `jiwoo@powerrepeat.test` | `student123` |
 
+선생님 화면에서 새 학생을 등록하면 해당 학생은 등록된 이메일과 비밀번호로 로그인할 수 있습니다.
+
 데모 세션 서명에는 `AUTH_SECRET` 환경 변수를 사용할 수 있습니다. 설정하지 않으면 개발용 기본값을 사용합니다.
 
 ## 검증
@@ -87,6 +91,8 @@ npm audit --audit-level=moderate
 - 현재 사용자/데모 계정: `GET /api/auth/me`
 - 로그인: `POST /api/auth/login`
 - 로그아웃: `POST /api/auth/logout`
+- 반 생성: `POST /api/classes`
+- 학생 생성: `POST /api/students`
 - 과제 생성: `POST /api/assignments`
 - 녹음 제출: `POST /api/submissions`
 - 제출 검토: `PATCH /api/submissions/[submissionId]`

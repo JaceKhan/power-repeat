@@ -28,6 +28,13 @@ export type PassageTemplate = {
   updatedAt: string;
 };
 
+export type ClassGroup = {
+  id: string;
+  name: string;
+  active: boolean;
+  createdAt: string;
+};
+
 export type Submission = {
   id: string;
   assignmentId: string;
@@ -51,11 +58,16 @@ export type Student = {
   id: string;
   name: string;
   className: string;
+  email: string;
+  password: string;
+  active: boolean;
+  createdAt: string;
 };
 
 export type HomeworkState = {
   assignments: Assignment[];
   submissions: Submission[];
+  classes: ClassGroup[];
   students: Student[];
   templates: PassageTemplate[];
 };
@@ -63,6 +75,8 @@ export type HomeworkState = {
 type StoredHomeworkData = {
   assignments: Assignment[];
   submissions: Submission[];
+  classes: ClassGroup[];
+  students: Student[];
   templates: PassageTemplate[];
 };
 
@@ -88,6 +102,17 @@ type CreateSubmissionInput = {
   audio: File;
 };
 
+type CreateClassInput = {
+  name: string;
+};
+
+type CreateStudentInput = {
+  name: string;
+  className: string;
+  email: string;
+  password: string;
+};
+
 type ReviewSubmissionInput = {
   status: Submission["status"];
   feedback?: string;
@@ -98,11 +123,48 @@ const DATA_DIR = path.join(process.cwd(), ".data");
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 const DB_FILE = path.join(DATA_DIR, "power-repeat.json");
 
-const STUDENTS: Student[] = [
-  { id: "s-1", name: "김민준", className: "CHESS Reading A" },
-  { id: "s-2", name: "이서연", className: "CHESS Reading A" },
-  { id: "s-3", name: "박지우", className: "CHESS Reading B" },
-  { id: "s-4", name: "최도윤", className: "CHESS Reading B" }
+const seedClasses: ClassGroup[] = [
+  { id: "class-a", name: "CHESS Reading A", active: true, createdAt: "2026-06-22T00:00:00.000Z" },
+  { id: "class-b", name: "CHESS Reading B", active: true, createdAt: "2026-06-22T00:00:00.000Z" }
+];
+
+const seedStudents: Student[] = [
+  {
+    id: "s-1",
+    name: "김민준",
+    className: "CHESS Reading A",
+    email: "minjun@powerrepeat.test",
+    password: "student123",
+    active: true,
+    createdAt: "2026-06-22T00:00:00.000Z"
+  },
+  {
+    id: "s-2",
+    name: "이서연",
+    className: "CHESS Reading A",
+    email: "seoyeon@powerrepeat.test",
+    password: "student123",
+    active: true,
+    createdAt: "2026-06-22T00:00:00.000Z"
+  },
+  {
+    id: "s-3",
+    name: "박지우",
+    className: "CHESS Reading B",
+    email: "jiwoo@powerrepeat.test",
+    password: "student123",
+    active: true,
+    createdAt: "2026-06-22T00:00:00.000Z"
+  },
+  {
+    id: "s-4",
+    name: "최도윤",
+    className: "CHESS Reading B",
+    email: "doyoon@powerrepeat.test",
+    password: "student123",
+    active: true,
+    createdAt: "2026-06-22T00:00:00.000Z"
+  }
 ];
 
 const seedAssignments: Assignment[] = [
@@ -126,6 +188,8 @@ const seedAssignments: Assignment[] = [
 const initialData: StoredHomeworkData = {
   assignments: seedAssignments,
   submissions: [],
+  classes: seedClasses,
+  students: seedStudents,
   templates: [
     {
       id: "tpl-1",
@@ -213,6 +277,29 @@ const normalizeTemplate = (template: PassageTemplate): PassageTemplate => {
   };
 };
 
+const normalizeClass = (classGroup: ClassGroup): ClassGroup => ({
+  id: classGroup.id || `class-${randomUUID()}`,
+  name: classGroup.name?.trim() || "Untitled Class",
+  active: typeof classGroup.active === "boolean" ? classGroup.active : true,
+  createdAt: classGroup.createdAt || new Date().toISOString()
+});
+
+const normalizeStudent = (student: Student): Student => {
+  const fallbackEmail = `${student.name || student.id || "student"}@powerrepeat.test`
+    .replace(/\s+/g, "")
+    .toLowerCase();
+
+  return {
+    id: student.id || `s-${randomUUID()}`,
+    name: student.name?.trim() || "Unnamed Student",
+    className: student.className?.trim() || seedClasses[0].name,
+    email: student.email?.trim().toLowerCase() || fallbackEmail,
+    password: student.password || "student123",
+    active: typeof student.active === "boolean" ? student.active : true,
+    createdAt: student.createdAt || new Date().toISOString()
+  };
+};
+
 const normalizeSubmission = (submission: Submission, assignments: Assignment[]): Submission => {
   const assignment = assignments.find((item) => item.id === submission.assignmentId);
   const totalPrepSegments = Number.isFinite(submission.totalPrepSegments)
@@ -264,6 +351,12 @@ const readData = async (): Promise<StoredHomeworkData> => {
   const submissions = Array.isArray(parsed.submissions)
     ? parsed.submissions.map((submission) => normalizeSubmission(submission, assignments))
     : [];
+  const classes = Array.isArray(parsed.classes)
+    ? parsed.classes.map((classGroup) => normalizeClass(classGroup))
+    : seedClasses;
+  const students = Array.isArray(parsed.students)
+    ? parsed.students.map((student) => normalizeStudent(student))
+    : seedStudents;
   const templates = Array.isArray(parsed.templates)
     ? parsed.templates.map((template) => normalizeTemplate(template))
     : initialData.templates;
@@ -271,6 +364,8 @@ const readData = async (): Promise<StoredHomeworkData> => {
   return {
     assignments,
     submissions,
+    classes,
+    students,
     templates
   };
 };
@@ -309,13 +404,10 @@ const removeUploadIfPresent = async (fileName: string) => {
   }
 };
 
-export const getStudents = () => STUDENTS;
-
 export const getHomeworkState = async (): Promise<HomeworkState> => {
   const data = await readData();
   return {
-    ...data,
-    students: STUDENTS
+    ...data
   };
 };
 
@@ -328,6 +420,10 @@ export const createAssignment = async (input: CreateAssignmentInput) => {
   const passage = assertText(input.passage, "passage");
   const dueDate = assertText(input.dueDate, "dueDate");
   const data = await readData();
+  if (!data.classes.some((classGroup) => classGroup.name === className && classGroup.active)) {
+    throw new Error("class not found");
+  }
+
   const now = new Date().toISOString();
   const existingTemplate = data.templates.find(
     (template) =>
@@ -377,6 +473,70 @@ export const createAssignment = async (input: CreateAssignmentInput) => {
   return assignment;
 };
 
+export const createClassGroup = async (input: CreateClassInput) => {
+  const name = assertText(input.name, "name");
+  const data = await readData();
+
+  if (data.classes.some((classGroup) => classGroup.name.toLowerCase() === name.toLowerCase())) {
+    throw new Error("class already exists");
+  }
+
+  const classGroup: ClassGroup = {
+    id: `class-${randomUUID()}`,
+    name,
+    active: true,
+    createdAt: new Date().toISOString()
+  };
+
+  data.classes = [classGroup, ...data.classes];
+  await writeData(data);
+
+  return classGroup;
+};
+
+export const createStudent = async (input: CreateStudentInput) => {
+  const name = assertText(input.name, "name");
+  const className = assertText(input.className, "className");
+  const email = assertText(input.email, "email").toLowerCase();
+  const password = assertText(input.password, "password");
+  const data = await readData();
+
+  if (!data.classes.some((classGroup) => classGroup.name === className && classGroup.active)) {
+    throw new Error("class not found");
+  }
+
+  if (data.students.some((student) => student.email.toLowerCase() === email)) {
+    throw new Error("student email already exists");
+  }
+
+  const student: Student = {
+    id: `s-${randomUUID()}`,
+    name,
+    className,
+    email,
+    password,
+    active: true,
+    createdAt: new Date().toISOString()
+  };
+
+  data.students = [student, ...data.students];
+  await writeData(data);
+
+  return student;
+};
+
+export const findStudentByCredentials = async (email: string, password: string) => {
+  const data = await readData();
+  return (
+    data.students.find(
+      (student) =>
+        student.active &&
+        student.email.toLowerCase() === email.trim().toLowerCase() &&
+        student.password === password
+    ) ?? null
+  );
+};
+
 export const createSubmission = async (input: CreateSubmissionInput) => {
   const assignmentId = assertText(input.assignmentId, "assignmentId");
   const studentId = assertText(input.studentId, "studentId");
@@ -387,7 +547,7 @@ export const createSubmission = async (input: CreateSubmissionInput) => {
 
   const data = await readData();
   const assignment = data.assignments.find((item) => item.id === assignmentId);
-  const student = STUDENTS.find((item) => item.id === studentId);
+  const student = data.students.find((item) => item.id === studentId && item.active);
 
   if (!assignment) {
     throw new Error("assignment not found");
