@@ -119,7 +119,7 @@ type ReviewSubmissionInput = {
   score?: number;
 };
 
-const DATA_DIR = path.join(process.cwd(), ".data");
+const DATA_DIR = process.env.POWER_REPEAT_DATA_DIR || path.join(process.cwd(), ".data");
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 const DB_FILE = path.join(DATA_DIR, "power-repeat.json");
 

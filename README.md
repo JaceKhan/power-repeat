@@ -59,6 +59,14 @@ npm run dev
 
 브라우저에서 `http://localhost:3000`으로 접속합니다.
 
+## 배포
+
+이 앱은 로그인, API, 녹음 업로드가 있으므로 GitHub Pages가 아니라 서버 실행이 가능한 배포 서비스가 필요합니다.
+
+현재 MVP 구조에서는 Render 배포를 추천합니다.
+
+자세한 배포 순서는 [DEPLOYMENT.md](./DEPLOYMENT.md)를 참고하세요.
+
 ## 데모 계정
 
 | 역할 | 이메일 | 비밀번호 |
