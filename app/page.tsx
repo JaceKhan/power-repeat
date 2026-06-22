@@ -49,6 +49,7 @@ export default function Home() {
   const [recordingSec, setRecordingSec] = useState(0);
   const [audioDataUrl, setAudioDataUrl] = useState("");
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState({
@@ -163,6 +164,13 @@ export default function Home() {
     }
   }, [selectedAssignmentId, visibleAssignments]);
 
+  useEffect(
+    () => () => {
+      window.speechSynthesis?.cancel();
+    },
+    []
+  );
+
   const resetRecording = () => {
     setRecordingState("idle");
     setRecordingSec(0);
@@ -222,6 +230,46 @@ export default function Home() {
   const stopRecording = () => {
     recorderRef.current?.stop();
     recorderRef.current = null;
+  };
+
+  const playNativePronunciation = () => {
+    if (!selectedAssignment) {
+      return;
+    }
+
+    if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+      setNotice("이 브라우저는 본문 듣기를 지원하지 않습니다. 최신 Chrome, Edge, Safari를 사용해 주세요.");
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(selectedAssignment.passage);
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice =
+      voices.find((voice) => voice.lang === "en-US" && /google|samantha|zira|natural/i.test(voice.name)) ??
+      voices.find((voice) => voice.lang === "en-US") ??
+      voices.find((voice) => voice.lang.startsWith("en"));
+
+    utterance.lang = "en-US";
+    utterance.rate = 0.88;
+    utterance.pitch = 1;
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
+    }
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      setNotice("본문 듣기 재생에 실패했습니다. 브라우저 음성 설정을 확인해 주세요.");
+    };
+
+    setIsSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const stopNativePronunciation = () => {
+    window.speechSynthesis?.cancel();
+    setIsSpeaking(false);
   };
 
   const login = async (event: FormEvent<HTMLFormElement>) => {
@@ -732,6 +780,22 @@ export default function Home() {
                 </div>
                 <div className="passage-box">
                   <p>{selectedAssignment.passage}</p>
+                </div>
+                <div className="listening-tools">
+                  <div>
+                    <strong>먼저 듣고 따라 읽기</strong>
+                    <p>브라우저의 영어 음성으로 본문을 읽어줍니다. 듣고 연습한 뒤 녹음하세요.</p>
+                  </div>
+                  <div className="button-row">
+                    <button className="primary-button" type="button" onClick={playNativePronunciation}>
+                      원어민 발음으로 듣기
+                    </button>
+                    {isSpeaking ? (
+                      <button type="button" onClick={stopNativePronunciation}>
+                        듣기 중지
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="instructions">
                   <strong>선생님 안내</strong>

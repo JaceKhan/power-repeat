@@ -509,6 +509,28 @@ textarea:focus {
   margin: 0;
 }
 
+.listening-tools {
+  align-items: center;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 22px;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding: 18px;
+}
+
+.listening-tools strong {
+  color: #9a3412;
+}
+
+.listening-tools p {
+  color: #9a3412;
+  line-height: 1.6;
+  margin: 6px 0 0;
+}
+
 .instructions,
 .feedback-box,
 .recorder {
@@ -581,6 +603,11 @@ textarea:focus {
 
   .student-grid .panel.wide {
     grid-column: 1 / -1;
+  }
+
+  .listening-tools {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 
