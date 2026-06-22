@@ -42,9 +42,19 @@ npm run dev
 npm run typecheck
 npm run lint
 npm run build
+npm audit --audit-level=moderate
 ```
 
 ## 현재 저장 방식
 
-초기 MVP는 백엔드 없이 바로 확인할 수 있도록 브라우저 `localStorage`에 과제와 제출 정보를 저장합니다.
-실제 운영 버전에서는 인증, 데이터베이스, 오디오 파일 스토리지(S3/Supabase Storage 등)를 추가해야 합니다.
+현재 MVP는 Next.js API 라우트가 서버 파일 시스템에 데이터를 저장합니다.
+
+- 과제/제출 메타데이터: `.data/power-repeat.json`
+- 제출 오디오 파일: `.data/uploads`
+- 오디오 재생: `/api/audio/[fileName]`
+- 전체 상태 조회: `/api/state`
+- 과제 생성: `POST /api/assignments`
+- 녹음 제출: `POST /api/submissions`
+- 제출 검토: `PATCH /api/submissions/[submissionId]`
+
+`.data`는 개발/시연용 로컬 저장소이며 Git에는 포함하지 않습니다. 실제 운영 버전에서는 인증, 데이터베이스, 오디오 파일 스토리지(S3/Supabase Storage 등)를 연결해야 합니다.

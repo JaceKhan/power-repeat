@@ -1,64 +1,11 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-
-type Assignment = {
-  id: string;
-  title: string;
-  className: string;
-  passage: string;
-  instructions: string;
-  dueDate: string;
-  createdAt: string;
-  teacherName: string;
-};
-
-type Submission = {
-  id: string;
-  assignmentId: string;
-  studentId: string;
-  studentName: string;
-  audioDataUrl: string;
-  durationSec: number;
-  submittedAt: string;
-  status: "submitted" | "reviewed" | "resubmit";
-  feedback?: string;
-  score?: number;
-};
-
-type Student = {
-  id: string;
-  name: string;
-  className: string;
-};
+import type { Assignment, HomeworkState, Student, Submission } from "@/lib/homework-data";
 
 type RecordingState = "idle" | "recording" | "ready";
 
-const STORAGE_KEY = "power-repeat-mvp";
-
-const STUDENTS: Student[] = [
-  { id: "s-1", name: "김민준", className: "CHESS Reading A" },
-  { id: "s-2", name: "이서연", className: "CHESS Reading A" },
-  { id: "s-3", name: "박지우", className: "CHESS Reading B" },
-  { id: "s-4", name: "최도윤", className: "CHESS Reading B" }
-];
-
-const seedAssignments: Assignment[] = [
-  {
-    id: "a-1",
-    title: "Storybook Reading 1: The Tiny Seed",
-    className: "CHESS Reading A",
-    passage:
-      "A tiny seed slept under the ground. Every morning, the sun warmed the soil. One day, rain fell softly, and the seed began to grow. It pushed up a small green leaf and looked at the bright sky.",
-    instructions:
-      "본문을 2번 연습한 뒤 한 번에 끝까지 읽어 녹음하세요. 너무 빠르게 읽기보다 또렷한 발음과 자연스러운 억양을 신경 써 주세요.",
-    dueDate: "2026-06-24",
-    createdAt: "2026-06-22T00:00:00.000Z",
-    teacherName: "Jamie Teacher"
-  }
-];
-
-const DEFAULT_FORM_DUE_DATE = seedAssignments[0].dueDate;
+const DEFAULT_FORM_DUE_DATE = "2026-06-24";
 
 const formatDateTime = (value: string) =>
   new Intl.DateTimeFormat("ko-KR", {
@@ -84,14 +31,17 @@ const blobToDataUrl = (blob: Blob) =>
 
 export default function Home() {
   const [activeRole, setActiveRole] = useState<"teacher" | "student">("teacher");
-  const [assignments, setAssignments] = useState<Assignment[]>(seedAssignments);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [selectedStudentId, setSelectedStudentId] = useState(STUDENTS[0].id);
-  const [selectedAssignmentId, setSelectedAssignmentId] = useState(seedAssignments[0].id);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [selectedStudentId, setSelectedStudentId] = useState("");
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingSec, setRecordingSec] = useState(0);
   const [audioDataUrl, setAudioDataUrl] = useState("");
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState({
     title: "Storybook Reading",
     className: "CHESS Reading A",
@@ -107,13 +57,16 @@ export default function Home() {
   const timerRef = useRef<number | null>(null);
 
   const selectedStudent = useMemo(
-    () => STUDENTS.find((student) => student.id === selectedStudentId) ?? STUDENTS[0],
-    [selectedStudentId]
+    () => students.find((student) => student.id === selectedStudentId) ?? students[0],
+    [selectedStudentId, students]
   );
 
   const visibleAssignments = useMemo(
-    () => assignments.filter((assignment) => assignment.className === selectedStudent.className),
-    [assignments, selectedStudent.className]
+    () =>
+      selectedStudent
+        ? assignments.filter((assignment) => assignment.className === selectedStudent.className)
+        : [],
+    [assignments, selectedStudent]
   );
 
   const selectedAssignment = useMemo(
@@ -129,47 +82,51 @@ export default function Home() {
       submissions.find(
         (submission) =>
           submission.assignmentId === selectedAssignment?.id &&
-          submission.studentId === selectedStudent.id
+          submission.studentId === selectedStudent?.id
       ),
-    [selectedAssignment?.id, selectedStudent.id, submissions]
+    [selectedAssignment?.id, selectedStudent?.id, submissions]
   );
 
   const submittedCount = submissions.filter((submission) => submission.status !== "resubmit").length;
   const assignedSubmissionSlots = assignments.reduce(
     (count, assignment) =>
-      count + STUDENTS.filter((student) => student.className === assignment.className).length,
+      count + students.filter((student) => student.className === assignment.className).length,
     0
   );
   const completionRate =
     assignedSubmissionSlots === 0 ? 0 : Math.round((submittedCount / assignedSubmissionSlots) * 100);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (!stored) {
-      return;
-    }
+    const loadState = async () => {
+      try {
+        const response = await fetch("/api/state");
+        if (!response.ok) {
+          throw new Error("state request failed");
+        }
 
-    try {
-      const parsed = JSON.parse(stored) as {
-        assignments?: Assignment[];
-        submissions?: Submission[];
-      };
+        const state = (await response.json()) as HomeworkState;
+        setAssignments(state.assignments);
+        setSubmissions(state.submissions);
+        setStudents(state.students);
+        setSelectedStudentId((current) =>
+          current && state.students.some((student) => student.id === current)
+            ? current
+            : (state.students[0]?.id ?? "")
+        );
+        setSelectedAssignmentId((current) =>
+          current && state.assignments.some((assignment) => assignment.id === current)
+            ? current
+            : (state.assignments[0]?.id ?? "")
+        );
+      } catch {
+        setNotice("서버 학습 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-      if (parsed.assignments?.length) {
-        setAssignments(parsed.assignments);
-        setSelectedAssignmentId(parsed.assignments[0].id);
-      }
-      if (parsed.submissions) {
-        setSubmissions(parsed.submissions);
-      }
-    } catch {
-      setNotice("저장된 학습 데이터를 불러오지 못했습니다. 새 데이터로 시작합니다.");
-    }
+    void loadState();
   }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ assignments, submissions }));
-  }, [assignments, submissions]);
 
   useEffect(() => {
     if (visibleAssignments.length && !visibleAssignments.some((item) => item.id === selectedAssignmentId)) {
@@ -239,32 +196,42 @@ export default function Home() {
   };
 
   const submitRecording = async () => {
-    if (!selectedAssignment || (!audioDataUrl && !audioBlob)) {
+    if (!selectedAssignment || !selectedStudent || !audioBlob) {
       setNotice("제출할 녹음이 없습니다. 먼저 녹음하거나 파일을 선택해 주세요.");
       return;
     }
 
-    const finalAudioUrl = audioDataUrl || (audioBlob ? await blobToDataUrl(audioBlob) : "");
-    const duration = Math.max(recordingSec, 1);
-    const submission: Submission = {
-      id: `sub-${Date.now()}`,
-      assignmentId: selectedAssignment.id,
-      studentId: selectedStudent.id,
-      studentName: selectedStudent.name,
-      audioDataUrl: finalAudioUrl,
-      durationSec: duration,
-      submittedAt: new Date().toISOString(),
-      status: "submitted"
-    };
+    setIsSaving(true);
+    try {
+      const formData = new FormData();
+      formData.append("assignmentId", selectedAssignment.id);
+      formData.append("studentId", selectedStudent.id);
+      formData.append("durationSec", String(Math.max(recordingSec, 1)));
+      formData.append("audio", audioBlob, `reading-${selectedAssignment.id}.webm`);
 
-    setSubmissions((current) => [
-      submission,
-      ...current.filter(
-        (item) => !(item.assignmentId === selectedAssignment.id && item.studentId === selectedStudent.id)
-      )
-    ]);
-    resetRecording();
-    setNotice("녹음 숙제가 제출되었습니다. 선생님 검토 후 피드백을 확인하세요.");
+      const response = await fetch("/api/submissions", {
+        method: "POST",
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error("submission request failed");
+      }
+
+      const submission = (await response.json()) as Submission;
+      setSubmissions((current) => [
+        submission,
+        ...current.filter(
+          (item) => !(item.assignmentId === selectedAssignment.id && item.studentId === selectedStudent.id)
+        )
+      ]);
+      resetRecording();
+      setNotice("녹음 숙제가 서버에 제출되었습니다. 선생님 검토 후 피드백을 확인하세요.");
+    } catch {
+      setNotice("녹음 제출에 실패했습니다. 네트워크 상태를 확인하고 다시 시도해 주세요.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleUploadFallback = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -280,48 +247,72 @@ export default function Home() {
     setNotice("녹음 파일을 불러왔습니다. 미리듣기 후 제출하세요.");
   };
 
-  const createAssignment = (event: FormEvent<HTMLFormElement>) => {
+  const createAssignment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!form.title.trim() || !form.passage.trim() || !form.dueDate) {
       setNotice("제목, 본문, 마감일은 필수입니다.");
       return;
     }
 
-    const nextAssignment: Assignment = {
-      id: `a-${Date.now()}`,
-      title: form.title.trim(),
-      className: form.className,
-      passage: form.passage.trim(),
-      instructions: form.instructions.trim(),
-      dueDate: form.dueDate,
-      createdAt: new Date().toISOString(),
-      teacherName: "Jamie Teacher"
-    };
+    setIsSaving(true);
+    try {
+      const response = await fetch("/api/assignments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(form)
+      });
 
-    setAssignments((current) => [nextAssignment, ...current]);
-    setSelectedAssignmentId(nextAssignment.id);
-    setForm((current) => ({
-      ...current,
-      title: "Storybook Reading",
-      passage: ""
-    }));
-    setNotice("새 리딩 녹음 과제가 배정되었습니다.");
+      if (!response.ok) {
+        throw new Error("assignment request failed");
+      }
+
+      const nextAssignment = (await response.json()) as Assignment;
+      setAssignments((current) => [nextAssignment, ...current]);
+      setSelectedAssignmentId(nextAssignment.id);
+      setForm((current) => ({
+        ...current,
+        title: "Storybook Reading",
+        passage: ""
+      }));
+      setNotice("새 리딩 녹음 과제가 서버에 배정되었습니다.");
+    } catch {
+      setNotice("과제 배정에 실패했습니다. 입력값을 확인하고 다시 시도해 주세요.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const reviewSubmission = (submission: Submission, status: Submission["status"]) => {
-    setSubmissions((current) =>
-      current.map((item) =>
-        item.id === submission.id
-          ? {
-              ...item,
-              status,
-              feedback: feedbackDraft[item.id]?.trim() || item.feedback,
-              score: scoreDraft[item.id] ?? item.score
-            }
-          : item
-      )
-    );
-    setNotice(status === "resubmit" ? "재제출 요청을 보냈습니다." : "피드백을 저장했습니다.");
+  const reviewSubmission = async (submission: Submission, status: Submission["status"]) => {
+    setIsSaving(true);
+    try {
+      const response = await fetch(`/api/submissions/${submission.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          status,
+          feedback: feedbackDraft[submission.id]?.trim() || submission.feedback,
+          score: scoreDraft[submission.id] ?? submission.score
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("review request failed");
+      }
+
+      const updatedSubmission = (await response.json()) as Submission;
+      setSubmissions((current) =>
+        current.map((item) => (item.id === updatedSubmission.id ? updatedSubmission : item))
+      );
+      setNotice(status === "resubmit" ? "재제출 요청을 보냈습니다." : "피드백을 저장했습니다.");
+    } catch {
+      setNotice("피드백 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -349,6 +340,8 @@ export default function Home() {
           {notice}
         </button>
       ) : null}
+
+      {isLoading ? <p className="empty">서버 학습 데이터를 불러오는 중입니다.</p> : null}
 
       <nav className="role-switch" aria-label="사용자 역할">
         <button
@@ -429,8 +422,8 @@ export default function Home() {
                   rows={3}
                 />
               </label>
-              <button className="primary-button" type="submit">
-                과제 배정하기
+              <button className="primary-button" disabled={isSaving} type="submit">
+                {isSaving ? "저장 중..." : "과제 배정하기"}
               </button>
             </form>
           </article>
@@ -444,7 +437,7 @@ export default function Home() {
             </div>
             <div className="assignment-list">
               {assignments.map((assignment) => {
-                const assignedStudents = STUDENTS.filter(
+                const assignedStudents = students.filter(
                   (student) => student.className === assignment.className
                 );
                 const relatedSubmissions = submissions.filter(
@@ -495,7 +488,7 @@ export default function Home() {
                               : "재제출 요청"}
                         </span>
                       </div>
-                      <audio controls src={submission.audioDataUrl} />
+                      <audio controls src={submission.audioUrl} />
                       <div className="submission-details">
                         <span>제출 {formatDateTime(submission.submittedAt)}</span>
                         <span>길이 {formatDuration(submission.durationSec)}</span>
@@ -532,11 +525,16 @@ export default function Home() {
                         </label>
                       </div>
                       <div className="button-row">
-                        <button type="button" onClick={() => reviewSubmission(submission, "reviewed")}>
+                        <button
+                          disabled={isSaving}
+                          type="button"
+                          onClick={() => reviewSubmission(submission, "reviewed")}
+                        >
                           피드백 저장
                         </button>
                         <button
                           className="secondary-danger"
+                          disabled={isSaving}
                           type="button"
                           onClick={() => reviewSubmission(submission, "resubmit")}
                         >
@@ -570,7 +568,7 @@ export default function Home() {
                   resetRecording();
                 }}
               >
-                {STUDENTS.map((student) => (
+                {students.map((student) => (
                   <option key={student.id} value={student.id}>
                     {student.name} - {student.className}
                   </option>
@@ -638,7 +636,7 @@ export default function Home() {
                         "녹음이 제출되었습니다. 선생님이 검토하면 피드백이 표시됩니다."}
                     </p>
                     {currentSubmission.score ? <span>점수 {currentSubmission.score}/100</span> : null}
-                    <audio controls src={currentSubmission.audioDataUrl} />
+                    <audio controls src={currentSubmission.audioUrl} />
                   </div>
                 ) : null}
 
@@ -673,8 +671,8 @@ export default function Home() {
                     <button type="button" onClick={resetRecording}>
                       다시 녹음
                     </button>
-                    <button className="submit-button" type="button" onClick={submitRecording}>
-                      최종 제출
+                    <button className="submit-button" disabled={isSaving} type="button" onClick={submitRecording}>
+                      {isSaving ? "제출 중..." : "최종 제출"}
                     </button>
                   </div>
                   <p className="helper-text">
