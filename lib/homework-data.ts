@@ -5,12 +5,27 @@ import path from "node:path";
 export type Assignment = {
   id: string;
   title: string;
+  bookName: string;
+  level: number;
+  passageTitle: string;
   className: string;
   passage: string;
   instructions: string;
   dueDate: string;
   createdAt: string;
   teacherName: string;
+  templateId?: string;
+};
+
+export type PassageTemplate = {
+  id: string;
+  bookName: string;
+  level: number;
+  passageTitle: string;
+  passage: string;
+  instructions: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type Submission = {
@@ -42,15 +57,20 @@ export type HomeworkState = {
   assignments: Assignment[];
   submissions: Submission[];
   students: Student[];
+  templates: PassageTemplate[];
 };
 
 type StoredHomeworkData = {
   assignments: Assignment[];
   submissions: Submission[];
+  templates: PassageTemplate[];
 };
 
 type CreateAssignmentInput = {
-  title: string;
+  title?: string;
+  bookName: string;
+  level: number;
+  passageTitle: string;
   className: string;
   passage: string;
   instructions: string;
@@ -89,6 +109,9 @@ const seedAssignments: Assignment[] = [
   {
     id: "a-1",
     title: "Storybook Reading 1: The Tiny Seed",
+    bookName: "Storybook Reading",
+    level: 1,
+    passageTitle: "The Tiny Seed",
     className: "CHESS Reading A",
     passage:
       "A tiny seed slept under the ground. Every morning, the sun warmed the soil. One day, rain fell softly, and the seed began to grow. It pushed up a small green leaf and looked at the bright sky.",
@@ -102,7 +125,19 @@ const seedAssignments: Assignment[] = [
 
 const initialData: StoredHomeworkData = {
   assignments: seedAssignments,
-  submissions: []
+  submissions: [],
+  templates: [
+    {
+      id: "tpl-1",
+      bookName: "Storybook Reading",
+      level: 1,
+      passageTitle: "The Tiny Seed",
+      passage: seedAssignments[0].passage,
+      instructions: seedAssignments[0].instructions,
+      createdAt: "2026-06-22T00:00:00.000Z",
+      updatedAt: "2026-06-22T00:00:00.000Z"
+    }
+  ]
 };
 
 const contentTypeToExtension: Record<string, string> = {
@@ -137,6 +172,45 @@ const calculateSubmissionGrade = ({
   }
 
   return prepCompleted ? "A+" : "A";
+};
+
+const buildAssignmentTitle = ({
+  bookName,
+  level,
+  passageTitle
+}: {
+  bookName: string;
+  level: number;
+  passageTitle: string;
+}) => `${bookName} / Level ${level} / ${passageTitle}`;
+
+const normalizeAssignment = (assignment: Assignment): Assignment => {
+  const bookName = assignment.bookName?.trim() || "Uncategorized Book";
+  const level = Number.isFinite(assignment.level) ? assignment.level : 1;
+  const passageTitle = assignment.passageTitle?.trim() || assignment.title;
+
+  return {
+    ...assignment,
+    bookName,
+    level,
+    passageTitle,
+    title: assignment.title?.trim() || buildAssignmentTitle({ bookName, level, passageTitle })
+  };
+};
+
+const normalizeTemplate = (template: PassageTemplate): PassageTemplate => {
+  const now = new Date().toISOString();
+
+  return {
+    id: template.id || `tpl-${randomUUID()}`,
+    bookName: template.bookName?.trim() || "Uncategorized Book",
+    level: Number.isFinite(template.level) ? template.level : 1,
+    passageTitle: template.passageTitle?.trim() || "Untitled Passage",
+    passage: template.passage ?? "",
+    instructions: template.instructions ?? "",
+    createdAt: template.createdAt || now,
+    updatedAt: template.updatedAt || template.createdAt || now
+  };
 };
 
 const normalizeSubmission = (submission: Submission, assignments: Assignment[]): Submission => {
@@ -184,14 +258,20 @@ const readData = async (): Promise<StoredHomeworkData> => {
   const raw = await fs.readFile(DB_FILE, "utf8");
   const parsed = JSON.parse(raw) as Partial<StoredHomeworkData>;
 
-  const assignments = Array.isArray(parsed.assignments) ? parsed.assignments : seedAssignments;
+  const assignments = Array.isArray(parsed.assignments)
+    ? parsed.assignments.map((assignment) => normalizeAssignment(assignment))
+    : seedAssignments;
   const submissions = Array.isArray(parsed.submissions)
     ? parsed.submissions.map((submission) => normalizeSubmission(submission, assignments))
     : [];
+  const templates = Array.isArray(parsed.templates)
+    ? parsed.templates.map((template) => normalizeTemplate(template))
+    : initialData.templates;
 
   return {
     assignments,
-    submissions
+    submissions,
+    templates
   };
 };
 
@@ -240,24 +320,58 @@ export const getHomeworkState = async (): Promise<HomeworkState> => {
 };
 
 export const createAssignment = async (input: CreateAssignmentInput) => {
-  const title = assertText(input.title, "title");
+  const bookName = assertText(input.bookName, "bookName");
+  const level = Math.min(Math.max(Math.round(Number(input.level)), 1), 6);
+  const passageTitle = assertText(input.passageTitle, "passageTitle");
+  const title = input.title?.trim() || buildAssignmentTitle({ bookName, level, passageTitle });
   const className = assertText(input.className, "className");
   const passage = assertText(input.passage, "passage");
   const dueDate = assertText(input.dueDate, "dueDate");
+  const data = await readData();
+  const now = new Date().toISOString();
+  const existingTemplate = data.templates.find(
+    (template) =>
+      template.bookName.toLowerCase() === bookName.toLowerCase() &&
+      template.level === level &&
+      template.passageTitle.toLowerCase() === passageTitle.toLowerCase()
+  );
+  const template: PassageTemplate = existingTemplate
+    ? {
+        ...existingTemplate,
+        passage,
+        instructions: input.instructions?.trim() ?? "",
+        updatedAt: now
+      }
+    : {
+        id: `tpl-${randomUUID()}`,
+        bookName,
+        level,
+        passageTitle,
+        passage,
+        instructions: input.instructions?.trim() ?? "",
+        createdAt: now,
+        updatedAt: now
+      };
 
   const assignment: Assignment = {
     id: `a-${randomUUID()}`,
     title,
+    bookName,
+    level,
+    passageTitle,
     className,
     passage,
     dueDate,
     instructions: input.instructions?.trim() ?? "",
-    createdAt: new Date().toISOString(),
-    teacherName: input.teacherName?.trim() || "Jamie Teacher"
+    createdAt: now,
+    teacherName: input.teacherName?.trim() || "Jamie Teacher",
+    templateId: template.id
   };
 
-  const data = await readData();
   data.assignments = [assignment, ...data.assignments];
+  data.templates = existingTemplate
+    ? data.templates.map((item) => (item.id === template.id ? template : item))
+    : [template, ...data.templates];
   await writeData(data);
 
   return assignment;

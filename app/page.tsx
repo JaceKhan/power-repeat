@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionUser } from "@/lib/auth";
-import type { Assignment, HomeworkState, Student, Submission } from "@/lib/homework-data";
+import type { Assignment, HomeworkState, PassageTemplate, Student, Submission } from "@/lib/homework-data";
 
 type RecordingState = "idle" | "recording" | "ready";
 type LoginDemoUser = Pick<SessionUser, "email" | "name" | "role"> & {
@@ -90,6 +90,7 @@ export default function Home() {
   const [demoUsers, setDemoUsers] = useState<LoginDemoUser[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [templates, setTemplates] = useState<PassageTemplate[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
@@ -103,7 +104,9 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState({
-    title: "Storybook Reading",
+    bookName: "Reading Explorer",
+    level: 2,
+    passageTitle: "",
     className: "CHESS Reading A",
     dueDate: DEFAULT_FORM_DUE_DATE,
     passage: "",
@@ -191,6 +194,7 @@ export default function Home() {
         setDemoUsers(authState.demoUsers);
         setAssignments([]);
         setSubmissions([]);
+        setTemplates([]);
         setStudents([]);
         return;
       }
@@ -203,6 +207,7 @@ export default function Home() {
       setActiveRole(state.currentUser.role);
       setAssignments(state.assignments);
       setSubmissions(state.submissions);
+      setTemplates(state.templates);
       setStudents(state.students);
       setSelectedStudentId((current) =>
         current && state.students.some((student) => student.id === current)
@@ -408,6 +413,7 @@ export default function Home() {
     setCurrentUser(null);
     setAssignments([]);
     setSubmissions([]);
+    setTemplates([]);
     setStudents([]);
     setSelectedStudentId("");
     setSelectedAssignmentId("");
@@ -472,8 +478,8 @@ export default function Home() {
 
   const createAssignment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!form.title.trim() || !form.passage.trim() || !form.dueDate) {
-      setNotice("제목, 본문, 마감일은 필수입니다.");
+    if (!form.bookName.trim() || !form.passageTitle.trim() || !form.passage.trim() || !form.dueDate) {
+      setNotice("책이름, 본문제목, 본문, 마감일은 필수입니다.");
       return;
     }
 
@@ -492,19 +498,30 @@ export default function Home() {
       }
 
       const nextAssignment = (await response.json()) as Assignment;
-      setAssignments((current) => [nextAssignment, ...current]);
       setSelectedAssignmentId(nextAssignment.id);
       setForm((current) => ({
         ...current,
-        title: "Storybook Reading",
         passage: ""
       }));
-      setNotice("새 리딩 녹음 과제가 서버에 배정되었습니다.");
+      await loadState();
+      setNotice("새 리딩 녹음 과제가 배정되고 템플릿으로 저장되었습니다.");
     } catch {
       setNotice("과제 배정에 실패했습니다. 입력값을 확인하고 다시 시도해 주세요.");
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const loadTemplateIntoForm = (template: PassageTemplate) => {
+    setForm((current) => ({
+      ...current,
+      bookName: template.bookName,
+      level: template.level,
+      passageTitle: template.passageTitle,
+      passage: template.passage,
+      instructions: template.instructions
+    }));
+    setNotice("저장된 본문 템플릿을 불러왔습니다. 반과 마감일을 확인한 뒤 배정하세요.");
   };
 
   const reviewSubmission = async (submission: Submission, status: Submission["status"]) => {
@@ -645,11 +662,34 @@ export default function Home() {
             </div>
             <form className="stack" onSubmit={createAssignment}>
               <label>
-                과제 제목
+                책이름
                 <input
-                  value={form.title}
-                  onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-                  placeholder="예: Storybook Reading Unit 3"
+                  value={form.bookName}
+                  onChange={(event) => setForm((current) => ({ ...current, bookName: event.target.value }))}
+                  placeholder="예: Reading Explorer"
+                />
+              </label>
+              <label>
+                Level
+                <div className="level-picker">
+                  {[1, 2, 3, 4, 5, 6].map((level) => (
+                    <button
+                      className={form.level === level ? "active" : ""}
+                      key={level}
+                      type="button"
+                      onClick={() => setForm((current) => ({ ...current, level }))}
+                    >
+                      Level {level}
+                    </button>
+                  ))}
+                </div>
+              </label>
+              <label>
+                본문제목
+                <input
+                  value={form.passageTitle}
+                  onChange={(event) => setForm((current) => ({ ...current, passageTitle: event.target.value }))}
+                  placeholder="예: The Great White"
                 />
               </label>
               <div className="two-columns">
@@ -704,6 +744,36 @@ export default function Home() {
           <article className="panel">
             <div className="panel-heading">
               <div>
+                <p className="eyebrow">Templates</p>
+                <h2>본문 템플릿 보관함</h2>
+              </div>
+              <span className="badge">{templates.length}개</span>
+            </div>
+            <div className="template-list">
+              {templates.length ? (
+                templates.map((template) => (
+                  <button
+                    className="template-card"
+                    key={template.id}
+                    type="button"
+                    onClick={() => loadTemplateIntoForm(template)}
+                  >
+                    <strong>{template.passageTitle}</strong>
+                    <span>
+                      {template.bookName} / Level {template.level}
+                    </span>
+                    <small>불러와서 다른 반이나 날짜로 다시 배정</small>
+                  </button>
+                ))
+              ) : (
+                <p className="empty">아직 저장된 본문 템플릿이 없습니다. 과제를 만들면 자동 저장됩니다.</p>
+              )}
+            </div>
+          </article>
+
+          <article className="panel wide">
+            <div className="panel-heading">
+              <div>
                 <p className="eyebrow">Management</p>
                 <h2>과제별 제출 현황</h2>
               </div>
@@ -719,8 +789,10 @@ export default function Home() {
                 return (
                   <div className="assignment-card" key={assignment.id}>
                     <div>
-                      <h3>{assignment.title}</h3>
-                      <p>{assignment.className}</p>
+                      <h3>{assignment.passageTitle}</h3>
+                      <p>
+                        {assignment.bookName} / Level {assignment.level} · {assignment.className}
+                      </p>
                     </div>
                     <div className="metrics">
                       <span>마감 {assignment.dueDate}</span>
@@ -764,7 +836,11 @@ export default function Home() {
                       <div className="review-meta">
                         <div>
                           <h3>{submission.studentName}</h3>
-                          <p>{assignment?.title ?? "삭제된 과제"}</p>
+                          <p>
+                            {assignment
+                              ? `${assignment.bookName} / Level ${assignment.level} / ${assignment.passageTitle}`
+                              : "삭제된 과제"}
+                          </p>
                         </div>
                         <span className={`status ${submission.status}`}>
                           {submission.status === "submitted"
@@ -881,7 +957,10 @@ export default function Home() {
                       resetRecording();
                     }}
                   >
-                    <span>{assignment.title}</span>
+                    <span>{assignment.passageTitle}</span>
+                    <small>
+                      {assignment.bookName} / Level {assignment.level} / {assignment.passageTitle}
+                    </small>
                     <small>
                       {submission
                         ? submission.status === "resubmit"
@@ -901,7 +980,10 @@ export default function Home() {
                 <div className="panel-heading">
                   <div>
                     <p className="eyebrow">{selectedAssignment.className}</p>
-                    <h2>{selectedAssignment.title}</h2>
+                    <h2>{selectedAssignment.passageTitle}</h2>
+                    <p>
+                      {selectedAssignment.bookName} / Level {selectedAssignment.level}
+                    </p>
                   </div>
                   <span className="badge">마감 {selectedAssignment.dueDate}</span>
                 </div>

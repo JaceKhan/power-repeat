@@ -29,6 +29,7 @@ export async function GET() {
     assignments,
     submissions,
     students: currentStudent ? [currentStudent] : [],
+    templates: [],
     currentUser: user
   });
 }

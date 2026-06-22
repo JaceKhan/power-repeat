@@ -291,6 +291,27 @@ audio {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.level-picker {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.level-picker button {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--muted);
+  font-weight: 900;
+  padding: 12px;
+}
+
+.level-picker button.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: white;
+}
+
 label {
   color: #344054;
   display: grid;
@@ -378,6 +399,31 @@ textarea:focus {
 
 .assignment-list.compact {
   margin-top: 18px;
+}
+
+.template-list {
+  display: grid;
+  gap: 12px;
+}
+
+.template-card {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  color: var(--foreground);
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  text-align: left;
+}
+
+.template-card strong {
+  font-size: 16px;
+}
+
+.template-card span,
+.template-card small {
+  color: var(--muted);
 }
 
 .assignment-card {
