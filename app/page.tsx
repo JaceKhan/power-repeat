@@ -101,6 +101,9 @@ export default function Home() {
   const [classes, setClasses] = useState<ClassGroup[]>([]);
   const [templates, setTemplates] = useState<PassageTemplate[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [templateBookFilter, setTemplateBookFilter] = useState("all");
+  const [templateLevelFilter, setTemplateLevelFilter] = useState<number | "all">("all");
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
@@ -191,6 +194,26 @@ export default function Home() {
 
   const prepCompleted =
     prepSegments.length > 0 && completedSegmentIds.length >= prepSegments.length;
+
+  const templateBookNames = useMemo(
+    () => Array.from(new Set(templates.map((template) => template.bookName))).sort(),
+    [templates]
+  );
+
+  const filteredTemplates = useMemo(() => {
+    const query = templateSearch.trim().toLowerCase();
+
+    return templates.filter((template) => {
+      const matchesSearch =
+        !query ||
+        template.bookName.toLowerCase().includes(query) ||
+        template.passageTitle.toLowerCase().includes(query);
+      const matchesBook = templateBookFilter === "all" || template.bookName === templateBookFilter;
+      const matchesLevel = templateLevelFilter === "all" || template.level === templateLevelFilter;
+
+      return matchesSearch && matchesBook && matchesLevel;
+    });
+  }, [templateBookFilter, templateLevelFilter, templateSearch, templates]);
 
   const submittedCount = submissions.filter((submission) => submission.status !== "resubmit").length;
   const assignedSubmissionSlots = assignments.reduce(
@@ -974,11 +997,53 @@ export default function Home() {
                 <p className="eyebrow">Templates</p>
                 <h2>본문 템플릿 보관함</h2>
               </div>
-              <span className="badge">{templates.length}개</span>
+              <span className="badge">
+                {filteredTemplates.length}/{templates.length}개
+              </span>
+            </div>
+            <div className="template-filters">
+              <label>
+                검색
+                <input
+                  value={templateSearch}
+                  onChange={(event) => setTemplateSearch(event.target.value)}
+                  placeholder="책이름 또는 본문제목 검색"
+                />
+              </label>
+              <label>
+                책이름
+                <select
+                  value={templateBookFilter}
+                  onChange={(event) => setTemplateBookFilter(event.target.value)}
+                >
+                  <option value="all">전체 교재</option>
+                  {templateBookNames.map((bookName) => (
+                    <option key={bookName} value={bookName}>
+                      {bookName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Level
+                <select
+                  value={templateLevelFilter}
+                  onChange={(event) =>
+                    setTemplateLevelFilter(event.target.value === "all" ? "all" : Number(event.target.value))
+                  }
+                >
+                  <option value="all">전체 Level</option>
+                  {[1, 2, 3, 4, 5, 6].map((level) => (
+                    <option key={level} value={level}>
+                      Level {level}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <div className="template-list">
-              {templates.length ? (
-                templates.map((template) => (
+              {filteredTemplates.length ? (
+                filteredTemplates.map((template) => (
                   <button
                     className="template-card"
                     key={template.id}
@@ -993,7 +1058,11 @@ export default function Home() {
                   </button>
                 ))
               ) : (
-                <p className="empty">아직 저장된 본문 템플릿이 없습니다. 과제를 만들면 자동 저장됩니다.</p>
+                <p className="empty">
+                  {templates.length
+                    ? "검색 조건에 맞는 템플릿이 없습니다."
+                    : "아직 저장된 본문 템플릿이 없습니다. 과제를 만들면 자동 저장됩니다."}
+                </p>
               )}
             </div>
           </article>

@@ -508,6 +508,17 @@ textarea:focus {
   gap: 12px;
 }
 
+.template-filters {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.8fr);
+  margin-bottom: 14px;
+  padding: 14px;
+}
+
 .template-card {
   background: #f8fafc;
   border: 1px solid var(--line);
@@ -925,6 +936,7 @@ textarea:focus {
   .student-grid,
   .roster-grid,
   .login-card-grid,
+  .template-filters,
   .auth-panel,
   .two-columns {
     grid-template-columns: 1fr;
