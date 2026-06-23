@@ -10,7 +10,7 @@ export async function POST(request: Request) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (user.role !== "teacher") {
+    if (user.role !== "teacher" && user.role !== "admin") {
       return NextResponse.json({ error: "Teacher access required" }, { status: 403 });
     }
 

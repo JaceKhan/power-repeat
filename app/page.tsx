@@ -226,7 +226,7 @@ export default function Home() {
 
       const state = (await response.json()) as AuthenticatedHomeworkState;
       setCurrentUser(state.currentUser);
-      setActiveRole(state.currentUser.role);
+      setActiveRole(state.currentUser.role === "student" ? "student" : "teacher");
       setAssignments(state.assignments);
       setSubmissions(state.submissions);
       setClasses(state.classes);
@@ -724,7 +724,14 @@ export default function Home() {
       {currentUser ? (
         <section className="session-bar">
           <div>
-            <p className="eyebrow">{currentUser.role === "teacher" ? "Teacher" : "Student"} session</p>
+            <p className="eyebrow">
+              {currentUser.role === "admin"
+                ? "Super Admin"
+                : currentUser.role === "teacher"
+                  ? "Teacher"
+                  : "Student"}{" "}
+              session
+            </p>
             <strong>{currentUser.name}</strong>
             <span>{currentUser.email}</span>
           </div>
@@ -821,7 +828,7 @@ export default function Home() {
                 onClick={() => setLoginForm({ email: user.email, password: user.passwordHint })}
               >
                 <strong>{user.name}</strong>
-                <span>{user.role === "teacher" ? "선생님" : "학생"} 계정</span>
+                <span>{user.role === "admin" ? "수퍼관리자" : user.role === "teacher" ? "선생님" : "학생"} 계정</span>
                 <small>
                   {user.email} / {user.passwordHint}
                 </small>

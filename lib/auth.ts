@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import type { NextResponse } from "next/server";
 import { findStudentByCredentials, findStudentByNameAndCode } from "@/lib/homework-data";
 
-export type UserRole = "teacher" | "student";
+export type UserRole = "admin" | "teacher" | "student";
 
 export type SessionUser = {
   id: string;
@@ -29,6 +29,13 @@ const SESSION_MAX_AGE_SEC = 60 * 60 * 8;
 const AUTH_SECRET = process.env.AUTH_SECRET || "power-repeat-development-secret";
 
 const teacherUsers: DemoUser[] = [
+  {
+    id: "u-admin-1",
+    email: "admin@powerrepeat.test",
+    password: "jace3000khan!!",
+    name: "금혜연",
+    role: "admin"
+  },
   {
     id: "u-teacher-1",
     email: "teacher@powerrepeat.test",
@@ -69,8 +76,11 @@ export const getDemoLoginUsers = () =>
   }));
 
 export const authenticateDemoUser = async (email: string, password: string) => {
+  const normalizedLogin = email.trim().toLowerCase();
   const user = teacherUsers.find(
-    (item) => item.email.toLowerCase() === email.trim().toLowerCase() && item.password === password
+    (item) =>
+      (item.email.toLowerCase() === normalizedLogin || item.name.trim().toLowerCase() === normalizedLogin) &&
+      item.password === password
   );
 
   if (user) {

@@ -12,7 +12,7 @@ export async function GET() {
 
   const state = await getHomeworkState();
 
-  if (user.role === "teacher") {
+  if (user.role === "teacher" || user.role === "admin") {
     return NextResponse.json({
       ...state,
       currentUser: user
