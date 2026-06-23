@@ -326,16 +326,24 @@ audio {
   display: none;
 }
 
-.teacher-roster-status {
+.teacher-roster-achievements {
   order: 1;
 }
 
-.teacher-roster-review {
+.teacher-roster-rankings {
   order: 2;
 }
 
-.teacher-roster-manage {
+.teacher-roster-status {
   order: 3;
+}
+
+.teacher-roster-review {
+  order: 4;
+}
+
+.teacher-roster-manage {
+  order: 5;
 }
 
 .student-grid {
@@ -690,6 +698,150 @@ textarea:focus {
   justify-content: space-between;
 }
 
+.achievement-layout {
+  align-items: start;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+
+.class-list-panel {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.class-list {
+  display: grid;
+  gap: 8px;
+}
+
+.class-list button {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--foreground);
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  text-align: left;
+}
+
+.class-list button.active {
+  background: var(--brand-soft);
+  border-color: rgba(37, 99, 235, 0.35);
+}
+
+.class-list small {
+  color: var(--muted);
+}
+
+.achievement-table-wrap {
+  min-width: 0;
+}
+
+.achievement-summary {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 14px;
+}
+
+.achievement-summary span {
+  color: var(--muted);
+}
+
+.achievement-table {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.achievement-row {
+  align-items: center;
+  background: white;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 52px minmax(120px, 1fr) repeat(6, minmax(44px, auto));
+  padding: 12px;
+}
+
+.achievement-row:last-child {
+  border-bottom: 0;
+}
+
+.achievement-row.heading {
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ranking-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ranking-card {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.ranking-row {
+  align-items: center;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) auto;
+  padding: 10px;
+}
+
+.ranking-row span {
+  color: var(--brand);
+  font-weight: 900;
+}
+
+.ranking-row small {
+  color: var(--muted);
+}
+
+.mvp-card {
+  background: linear-gradient(135deg, #172033, #243b65);
+  color: white;
+}
+
+.mvp-card h3 {
+  font-size: 34px;
+  letter-spacing: -0.04em;
+  margin: 8px 0 0;
+}
+
+.mvp-card p,
+.mvp-card small {
+  color: rgba(255, 255, 255, 0.72);
+  margin: 0;
+}
+
+.mvp-card span {
+  font-size: 28px;
+  font-weight: 900;
+}
+
 .grade-pill {
   border-radius: 999px;
   display: inline-flex;
@@ -952,6 +1104,8 @@ textarea:focus {
   .student-grid,
   .student-workspace,
   .roster-grid,
+  .achievement-layout,
+  .ranking-grid,
   .login-card-grid,
   .template-filters,
   .auth-panel,
@@ -994,6 +1148,22 @@ textarea:focus {
 
   .student-grid {
     padding-bottom: 260px;
+  }
+
+  .achievement-table {
+    overflow-x: auto;
+  }
+
+  .achievement-row {
+    min-width: 680px;
+  }
+
+  .ranking-row {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+  }
+
+  .ranking-row small {
+    grid-column: 2 / -1;
   }
 
   .listening-tools {

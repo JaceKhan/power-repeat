@@ -52,6 +52,24 @@ const getGradeClassName = (grade: Submission["grade"] | "F") =>
           : "grade-f"
   }`;
 
+const gradePoints: Record<Submission["grade"] | "F", number> = {
+  "A+": 5,
+  A: 4,
+  B: 2,
+  F: 0
+};
+
+const getWeekStart = (date: Date) => {
+  const start = new Date(date);
+  const day = start.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  start.setDate(start.getDate() + diff);
+  start.setHours(0, 0, 0, 0);
+  return start;
+};
+
+const getMonthStart = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
+
 const blobToDataUrl = (blob: Blob) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -104,6 +122,7 @@ export default function Home() {
   const [templateSearch, setTemplateSearch] = useState("");
   const [templateBookFilter, setTemplateBookFilter] = useState("all");
   const [templateLevelFilter, setTemplateLevelFilter] = useState<number | "all">("all");
+  const [selectedAchievementClassName, setSelectedAchievementClassName] = useState("");
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
@@ -224,6 +243,91 @@ export default function Home() {
   const completionRate =
     assignedSubmissionSlots === 0 ? 0 : Math.round((submittedCount / assignedSubmissionSlots) * 100);
 
+  const calculateStudentAchievement = useCallback(
+    (student: Student, periodStart?: Date) => {
+      const now = new Date();
+      const classAssignments = assignments.filter((assignment) => assignment.className === student.className);
+      const relevantAssignments = periodStart
+        ? classAssignments.filter((assignment) => new Date(`${assignment.dueDate}T23:59:59`) >= periodStart)
+        : classAssignments;
+      const stats = {
+        student,
+        score: 0,
+        submitted: 0,
+        total: relevantAssignments.length,
+        completionRate: 0,
+        aplus: 0,
+        a: 0,
+        b: 0,
+        f: 0
+      };
+
+      relevantAssignments.forEach((assignment) => {
+        const submission = submissions.find(
+          (item) => item.assignmentId === assignment.id && item.studentId === student.id
+        );
+        const submittedInPeriod =
+          !periodStart || (submission && new Date(submission.submittedAt) >= periodStart);
+        const duePassed = new Date(`${assignment.dueDate}T23:59:59`) <= now;
+
+        if (submission && submittedInPeriod) {
+          stats.submitted += 1;
+          stats.score += gradePoints[submission.grade];
+          if (submission.grade === "A+") stats.aplus += 1;
+          if (submission.grade === "A") stats.a += 1;
+          if (submission.grade === "B") stats.b += 1;
+          return;
+        }
+
+        if (!periodStart || duePassed) {
+          stats.f += 1;
+        }
+      });
+
+      stats.completionRate = stats.total ? Math.round((stats.submitted / stats.total) * 100) : 0;
+      return stats;
+    },
+    [assignments, submissions]
+  );
+
+  const selectedClassStudents = useMemo(
+    () => students.filter((student) => student.className === selectedAchievementClassName),
+    [selectedAchievementClassName, students]
+  );
+
+  const selectedClassAchievements = useMemo(
+    () =>
+      selectedClassStudents
+        .map((student) => calculateStudentAchievement(student))
+        .sort((left, right) => right.score - left.score || right.aplus - left.aplus),
+    [calculateStudentAchievement, selectedClassStudents]
+  );
+
+  const weekStart = useMemo(() => getWeekStart(new Date()), []);
+  const monthStart = useMemo(() => getMonthStart(new Date()), []);
+
+  const weeklyRankings = useMemo(
+    () =>
+      students
+        .map((student) => calculateStudentAchievement(student, weekStart))
+        .filter((stats) => stats.total > 0)
+        .sort((left, right) => right.score - left.score || right.completionRate - left.completionRate)
+        .slice(0, 10),
+    [calculateStudentAchievement, students, weekStart]
+  );
+
+  const monthlyRankings = useMemo(
+    () =>
+      students
+        .map((student) => calculateStudentAchievement(student, monthStart))
+        .filter((stats) => stats.total > 0)
+        .sort((left, right) => right.score - left.score || right.completionRate - left.completionRate)
+        .slice(0, 10),
+    [calculateStudentAchievement, monthStart, students]
+  );
+
+  const monthlyMvp = monthlyRankings[0];
+
   const loadState = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -267,6 +371,11 @@ export default function Home() {
           ? current.className
           : (state.classes[0]?.name ?? current.className)
       }));
+      setSelectedAchievementClassName((current) =>
+        current && state.classes.some((classGroup) => classGroup.name === current)
+          ? current
+          : (state.classes[0]?.name ?? "")
+      );
       setSelectedStudentId((current) =>
         current && state.students.some((student) => student.id === current)
           ? current
@@ -891,6 +1000,8 @@ export default function Home() {
                   </>
                 ) : (
                   <>
+                    <a href="#class-achievements">반별 성취 현황</a>
+                    <a href="#student-rankings">주간/월간 순위</a>
                     <a href="#assignment-status">과제 제출 현황</a>
                     <a href="#submission-review">녹음 제출 검토</a>
                     <a href="#roster-manage">반/학생 등록</a>
@@ -1065,6 +1176,140 @@ export default function Home() {
                 </p>
               )}
             </div>
+          </article>
+
+          <article className="panel wide teacher-roster-panel teacher-roster-achievements" id="class-achievements">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Achievement</p>
+                <h2>반별 성취 현황</h2>
+              </div>
+              <span className="badge">{selectedAchievementClassName || "반 선택"}</span>
+            </div>
+            <div className="achievement-layout">
+              <div className="class-list-panel">
+                <strong>반 목록</strong>
+                <div className="class-list">
+                  {classes.map((classGroup) => {
+                    const classStudents = students.filter((student) => student.className === classGroup.name);
+                    const classAssignments = assignments.filter(
+                      (assignment) => assignment.className === classGroup.name
+                    );
+                    const classSubmissions = submissions.filter((submission) =>
+                      classAssignments.some((assignment) => assignment.id === submission.assignmentId)
+                    );
+
+                    return (
+                      <button
+                        className={selectedAchievementClassName === classGroup.name ? "active" : ""}
+                        key={classGroup.id}
+                        type="button"
+                        onClick={() => setSelectedAchievementClassName(classGroup.name)}
+                      >
+                        <span>{classGroup.name}</span>
+                        <small>
+                          {classStudents.length}명 · 제출 {classSubmissions.length}건
+                        </small>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="achievement-table-wrap">
+                <div className="achievement-summary">
+                  <strong>{selectedAchievementClassName || "반을 선택하세요"}</strong>
+                  <span>{selectedClassAchievements.length}명</span>
+                </div>
+                {selectedClassAchievements.length ? (
+                  <div className="achievement-table">
+                    <div className="achievement-row heading">
+                      <span>순위</span>
+                      <span>학생</span>
+                      <span>제출률</span>
+                      <span>A+</span>
+                      <span>A</span>
+                      <span>B</span>
+                      <span>F</span>
+                      <span>점수</span>
+                    </div>
+                    {selectedClassAchievements.map((stats, index) => (
+                      <div className="achievement-row" key={stats.student.id}>
+                        <span>{index + 1}</span>
+                        <strong>{stats.student.name}</strong>
+                        <span>{stats.completionRate}%</span>
+                        <span>{stats.aplus}</span>
+                        <span>{stats.a}</span>
+                        <span>{stats.b}</span>
+                        <span>{stats.f}</span>
+                        <strong>{stats.score}</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty">이 반에는 아직 학생이나 과제가 없습니다.</p>
+                )}
+              </div>
+            </div>
+          </article>
+
+          <article className="panel wide teacher-roster-panel teacher-roster-rankings" id="student-rankings">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Rankings</p>
+                <h2>주간 전체 순위 / 월간 MVP</h2>
+              </div>
+            </div>
+            <div className="ranking-grid">
+              <div className="ranking-card">
+                <strong>이번 주 전체 학생 순위</strong>
+                {weeklyRankings.length ? (
+                  weeklyRankings.map((stats, index) => (
+                    <div className="ranking-row" key={stats.student.id}>
+                      <span>{index + 1}</span>
+                      <strong>{stats.student.name}</strong>
+                      <small>{stats.student.className}</small>
+                      <b>{stats.score}점</b>
+                    </div>
+                  ))
+                ) : (
+                  <p className="empty">이번 주 집계할 제출 기록이 아직 없습니다.</p>
+                )}
+              </div>
+              <div className="ranking-card">
+                <strong>이번 달 전체 순위</strong>
+                {monthlyRankings.length ? (
+                  monthlyRankings.map((stats, index) => (
+                    <div className="ranking-row" key={stats.student.id}>
+                      <span>{index + 1}</span>
+                      <strong>{stats.student.name}</strong>
+                      <small>{stats.student.className}</small>
+                      <b>{stats.score}점</b>
+                    </div>
+                  ))
+                ) : (
+                  <p className="empty">이번 달 집계할 제출 기록이 아직 없습니다.</p>
+                )}
+              </div>
+              <div className="ranking-card mvp-card">
+                <strong>한 달 전체 MVP</strong>
+                {monthlyMvp ? (
+                  <>
+                    <h3>{monthlyMvp.student.name}</h3>
+                    <p>{monthlyMvp.student.className}</p>
+                    <span>{monthlyMvp.score}점</span>
+                    <small>
+                      A+ {monthlyMvp.aplus}회 · 제출률 {monthlyMvp.completionRate}%
+                    </small>
+                  </>
+                ) : (
+                  <p className="empty">이번 달 MVP 후보가 아직 없습니다.</p>
+                )}
+              </div>
+            </div>
+            <p className="helper-note">
+              기본 점수 기준: A+ 5점, A 4점, B 2점, F 0점입니다. 추후 운영 기준에 따라 성실상,
+              성장상, 연속 제출 보너스도 추가할 수 있습니다.
+            </p>
           </article>
 
           <article className="panel wide teacher-roster-panel teacher-roster-manage" id="roster-manage">
