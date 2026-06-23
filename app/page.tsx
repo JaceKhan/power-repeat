@@ -1383,30 +1383,32 @@ export default function Home() {
                   </div>
                   <span className="badge">마감 {selectedAssignment.dueDate}</span>
                 </div>
-                <div className="passage-box">
-                  <p>{selectedAssignment.passage}</p>
-                </div>
-                <div className="listening-tools">
-                  <div>
-                    <strong>먼저 듣고 따라 읽기</strong>
-                    <p>
-                      본문을 약 150자 전후 듣기 구간으로 나눴습니다. 모든 구간을 끝까지 들으면 A+
-                      준비 표시가 됩니다.
-                    </p>
-                  </div>
-                  <div className="button-row">
-                    <button className="primary-button" type="button" onClick={() => playNativePronunciation()}>
-                      전체 원어민 발음으로 듣기
-                    </button>
-                    {isSpeaking ? (
-                      <button type="button" onClick={stopNativePronunciation}>
-                        듣기 중지
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="prep-panel">
-                  <div className="prep-summary">
+                <div className="student-workspace">
+                  <div className="student-reading-column">
+                    <div className="passage-box">
+                      <p>{selectedAssignment.passage}</p>
+                    </div>
+                    <div className="listening-tools">
+                      <div>
+                        <strong>먼저 듣고 따라 읽기</strong>
+                        <p>
+                          본문을 약 150자 전후 듣기 구간으로 나눴습니다. 모든 구간을 끝까지 들으면 A+
+                          준비 표시가 됩니다.
+                        </p>
+                      </div>
+                      <div className="button-row">
+                        <button className="primary-button" type="button" onClick={() => playNativePronunciation()}>
+                          전체 원어민 발음으로 듣기
+                        </button>
+                        {isSpeaking ? (
+                          <button type="button" onClick={stopNativePronunciation}>
+                            듣기 중지
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="prep-panel">
+                      <div className="prep-summary">
                     <div>
                       <strong>구간 듣기 완료</strong>
                       <span>
@@ -1444,38 +1446,40 @@ export default function Home() {
                       );
                     })}
                   </div>
-                </div>
-                <div className="instructions">
-                  <strong>선생님 안내</strong>
-                  <p>{selectedAssignment.instructions}</p>
-                </div>
+                    </div>
+                    <div className="instructions">
+                      <strong>선생님 안내</strong>
+                      <p>{selectedAssignment.instructions}</p>
+                    </div>
 
-                {currentSubmission ? (
-                  <div className={`feedback-box ${currentSubmission.status}`}>
-                    <strong>
-                      {currentSubmission.status === "resubmit"
-                        ? "재제출 요청"
-                        : currentSubmission.status === "reviewed"
-                          ? "선생님 피드백"
-                          : "제출 완료"}
-                    </strong>
-                    <p>
-                      {currentSubmission.feedback ||
-                        "녹음이 제출되었습니다. 선생님이 검토하면 피드백이 표시됩니다."}
-                    </p>
-                    {currentSubmission.score ? <span>점수 {currentSubmission.score}/100</span> : null}
-                    <strong className={getGradeClassName(currentSubmission.grade)}>
-                      제출 등급 {currentSubmission.grade}
-                    </strong>
-                    <span>
-                      구간 듣기 {currentSubmission.completedPrepSegments ?? 0}/
-                      {currentSubmission.totalPrepSegments ?? 0}
-                    </span>
-                    <audio controls src={currentSubmission.audioUrl} />
+                    {currentSubmission ? (
+                      <div className={`feedback-box ${currentSubmission.status}`}>
+                        <strong>
+                          {currentSubmission.status === "resubmit"
+                            ? "재제출 요청"
+                            : currentSubmission.status === "reviewed"
+                              ? "선생님 피드백"
+                              : "제출 완료"}
+                        </strong>
+                        <p>
+                          {currentSubmission.feedback ||
+                            "녹음이 제출되었습니다. 선생님이 검토하면 피드백이 표시됩니다."}
+                        </p>
+                        {currentSubmission.score ? <span>점수 {currentSubmission.score}/100</span> : null}
+                        <strong className={getGradeClassName(currentSubmission.grade)}>
+                          제출 등급 {currentSubmission.grade}
+                        </strong>
+                        <span>
+                          구간 듣기 {currentSubmission.completedPrepSegments ?? 0}/
+                          {currentSubmission.totalPrepSegments ?? 0}
+                        </span>
+                        <audio controls src={currentSubmission.audioUrl} />
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
 
-                <div className="recorder">
+                  <aside className="student-recorder-sticky">
+                    <div className="recorder">
                   <div>
                     <p className="eyebrow">Recorder</p>
                     <h3>
@@ -1515,6 +1519,8 @@ export default function Home() {
                     모든 구간 듣기 후 충분히 녹음하면 A+, 듣기 없이 정상 녹음하면 A, 녹음이 지나치게
                     짧으면 B, 미제출은 선생님 화면에서 F로 표시됩니다.
                   </p>
+                    </div>
+                  </aside>
                 </div>
               </>
             ) : (
