@@ -1,60 +1,75 @@
 # Power Repeat 배포 안내
 
-이 앱은 로그인, API, 녹음 파일 업로드가 있으므로 GitHub Pages 같은 정적 호스팅에는 맞지 않습니다.
+정식 운영은 **Supabase + Vercel** 조합을 사용합니다.
 
-GitHub는 코드를 보관하는 곳이고, 실제 홈페이지 주소는 Render, Railway, Vercel 같은 배포 서비스에서 만들어집니다.
+- Supabase: 반, 학생, 템플릿, 과제, 제출 기록, 녹음 파일 저장
+- Vercel: Next.js 홈페이지와 API 배포
+- GitHub: 코드 저장소
 
-## 추천: Render로 배포
+## 1. Supabase 준비
 
-현재 구조에서는 Render가 가장 단순합니다.
+Supabase에서 아래 작업을 먼저 완료합니다.
 
-- Next.js 서버 실행 가능
-- 녹음 파일과 데이터 저장용 영구 디스크 연결 가능
-- GitHub 저장소와 연결 가능
+1. 새 프로젝트 생성
+2. SQL Editor에서 테이블 생성 SQL 실행
+3. Storage에서 `recordings` 버킷 확인
+4. Project URL 확인
+5. API Keys에서 service role key 확인
 
-## Render 배포 순서
+## 2. Vercel 환경변수
 
-1. <https://render.com> 접속
+Vercel 프로젝트 Settings > Environment Variables에 아래 값을 추가합니다.
+
+```text
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+AUTH_SECRET=충분히-긴-랜덤-문자열
+```
+
+주의:
+
+- `SUPABASE_SERVICE_ROLE_KEY`는 절대 공개하면 안 됩니다.
+- GitHub 코드에 직접 넣으면 안 됩니다.
+- Vercel 환경변수에만 넣습니다.
+
+## 3. Vercel 배포 순서
+
+1. <https://vercel.com> 접속
 2. GitHub 계정으로 로그인
-3. `New +` 클릭
-4. `Blueprint` 선택
-5. GitHub 저장소 `JaceKhan/power-repeat` 선택
-6. Render가 `render.yaml` 파일을 자동으로 읽음
-7. 서비스 이름이 `power-repeat`인지 확인
-8. `Apply` 또는 `Create` 클릭
-9. 배포 완료 후 Render가 제공하는 주소로 접속
+3. `Add New...` 또는 `New Project` 클릭
+4. GitHub 저장소 `JaceKhan/power-repeat` 선택
+5. Framework는 Next.js로 자동 감지
+6. Environment Variables에 위 3개 값 입력
+7. Deploy 클릭
+
+배포가 끝나면 Vercel이 주소를 만들어줍니다.
 
 예상 주소 형태:
 
 ```text
-https://power-repeat.onrender.com
+https://power-repeat.vercel.app
 ```
 
-실제 주소는 Render가 만들어주는 주소를 사용합니다.
+실제 주소는 Vercel 화면에서 확인합니다.
 
-## 중요한 설정
+## 4. 배포 후 확인
 
-`render.yaml`에는 아래 설정이 들어 있습니다.
+1. 수퍼관리자 로그인
+2. 반 생성
+3. 학생 생성
+4. 템플릿 저장
+5. 과제 배정
+6. 학생 이름 + 4자리 코드 로그인
+7. 녹음 제출
+8. 선생님/관리자 화면에서 제출 확인
 
-- `AUTH_SECRET`: 로그인 쿠키 서명용 비밀값
-- `POWER_REPEAT_DATA_DIR=/var/data`: 과제, 학생, 템플릿, 녹음 저장 위치
-- `/var/data`: Render 영구 디스크
+## 5. 앞으로 더 안전하게 바꿀 부분
 
-## 왜 Vercel보다 Render를 먼저 추천하나요?
+현재 MVP는 빠른 운영 검증을 우선합니다. 장기 운영 전에는 아래 개선을 권장합니다.
 
-Vercel은 Next.js 배포에는 좋지만, 현재 MVP처럼 서버 파일 시스템에 녹음 파일과 데이터를 저장하는 방식에는 적합하지 않습니다.
-
-Vercel로 정식 운영하려면 먼저 아래를 연결하는 것이 좋습니다.
-
-- 데이터베이스: Supabase/PostgreSQL
-- 녹음 저장소: Supabase Storage, S3, Cloudflare R2 등
-
-## 지금 단계의 한계
-
-Render 배포는 실제 사용 테스트에는 충분하지만, 장기 운영 전에는 아래 작업을 권장합니다.
-
-1. 실제 데이터베이스 연결
-2. 녹음 파일 전용 스토리지 연결
-3. 학생 비밀번호 암호화
-4. 백업 정책
-5. 정식 도메인 연결
+1. Supabase Auth 기반 선생님/수퍼관리자 로그인
+2. 선생님 초대/비밀번호 재설정
+3. 학생 코드 재발급
+4. 녹음 파일 보관 기간 정책
+5. 백업 정책
+6. 정식 도메인 연결

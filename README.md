@@ -65,7 +65,7 @@ npm run dev
 
 이 앱은 로그인, API, 녹음 업로드가 있으므로 GitHub Pages가 아니라 서버 실행이 가능한 배포 서비스가 필요합니다.
 
-현재 MVP 구조에서는 Render 배포를 추천합니다.
+정식 운영은 Supabase + Vercel 배포를 추천합니다.
 
 자세한 배포 순서는 [DEPLOYMENT.md](./DEPLOYMENT.md)를 참고하세요.
 
@@ -93,7 +93,7 @@ npm audit --audit-level=moderate
 
 ## 현재 저장 방식
 
-현재 MVP는 Next.js API 라우트가 서버 파일 시스템에 데이터를 저장합니다.
+현재 MVP는 Supabase 환경변수가 있으면 Supabase DB/Storage를 사용하고, 환경변수가 없으면 개발용 로컬 파일 저장소를 사용합니다.
 
 - 과제/제출 메타데이터: `.data/power-repeat.json`
 - 제출 오디오 파일: `.data/uploads`
@@ -108,4 +108,4 @@ npm audit --audit-level=moderate
 - 녹음 제출: `POST /api/submissions`
 - 제출 검토: `PATCH /api/submissions/[submissionId]`
 
-`.data`는 개발/시연용 로컬 저장소이며 Git에는 포함하지 않습니다. 실제 운영 버전에서는 인증, 데이터베이스, 오디오 파일 스토리지(S3/Supabase Storage 등)를 연결해야 합니다.
+`.data`는 개발/시연용 로컬 저장소이며 Git에는 포함하지 않습니다. 정식 운영에서는 Supabase 환경변수를 설정해 Supabase DB/Storage를 사용합니다.

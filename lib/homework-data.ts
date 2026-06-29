@@ -1,6 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { isSupabaseConfigured } from "@/lib/supabase-admin";
+import {
+  createSupabaseAssignment,
+  createSupabaseClassGroup,
+  createSupabaseStudent,
+  createSupabaseSubmission,
+  findSupabaseStudentByCredentials,
+  findSupabaseStudentByNameAndCode,
+  getSupabaseHomeworkState,
+  readSupabaseAudio,
+  reviewSupabaseSubmission
+} from "@/lib/supabase-homework";
 
 export type Assignment = {
   id: string;
@@ -440,6 +452,10 @@ const removeUploadIfPresent = async (fileName: string) => {
 };
 
 export const getHomeworkState = async (): Promise<HomeworkState> => {
+  if (isSupabaseConfigured()) {
+    return getSupabaseHomeworkState();
+  }
+
   const data = await readData();
   return {
     ...data
@@ -447,6 +463,10 @@ export const getHomeworkState = async (): Promise<HomeworkState> => {
 };
 
 export const createAssignment = async (input: CreateAssignmentInput) => {
+  if (isSupabaseConfigured()) {
+    return createSupabaseAssignment(input);
+  }
+
   const bookName = assertText(input.bookName, "bookName");
   const level = Math.min(Math.max(Math.round(Number(input.level)), 1), 6);
   const passageTitle = assertText(input.passageTitle, "passageTitle");
@@ -509,6 +529,10 @@ export const createAssignment = async (input: CreateAssignmentInput) => {
 };
 
 export const createClassGroup = async (input: CreateClassInput) => {
+  if (isSupabaseConfigured()) {
+    return createSupabaseClassGroup(input);
+  }
+
   const name = assertText(input.name, "name");
   const data = await readData();
 
@@ -530,6 +554,10 @@ export const createClassGroup = async (input: CreateClassInput) => {
 };
 
 export const createStudent = async (input: CreateStudentInput) => {
+  if (isSupabaseConfigured()) {
+    return createSupabaseStudent(input);
+  }
+
   const name = assertText(input.name, "name");
   const className = assertText(input.className, "className");
   const data = await readData();
@@ -565,6 +593,10 @@ export const createStudent = async (input: CreateStudentInput) => {
 };
 
 export const findStudentByCredentials = async (email: string, password: string) => {
+  if (isSupabaseConfigured()) {
+    return findSupabaseStudentByCredentials(email, password);
+  }
+
   const data = await readData();
   return (
     data.students.find(
@@ -577,6 +609,10 @@ export const findStudentByCredentials = async (email: string, password: string) 
 };
 
 export const findStudentByNameAndCode = async (name: string, loginCode: string) => {
+  if (isSupabaseConfigured()) {
+    return findSupabaseStudentByNameAndCode(name, loginCode);
+  }
+
   const data = await readData();
   return (
     data.students.find(
@@ -589,6 +625,10 @@ export const findStudentByNameAndCode = async (name: string, loginCode: string) 
 };
 
 export const createSubmission = async (input: CreateSubmissionInput) => {
+  if (isSupabaseConfigured()) {
+    return createSupabaseSubmission(input);
+  }
+
   const assignmentId = assertText(input.assignmentId, "assignmentId");
   const studentId = assertText(input.studentId, "studentId");
 
@@ -667,6 +707,10 @@ export const createSubmission = async (input: CreateSubmissionInput) => {
 };
 
 export const reviewSubmission = async (submissionId: string, input: ReviewSubmissionInput) => {
+  if (isSupabaseConfigured()) {
+    return reviewSupabaseSubmission(submissionId, input);
+  }
+
   const data = await readData();
   const status = input.status;
 
@@ -699,6 +743,10 @@ export const reviewSubmission = async (submissionId: string, input: ReviewSubmis
 };
 
 export const readAudio = async (fileName: string) => {
+  if (isSupabaseConfigured()) {
+    return readSupabaseAudio(fileName);
+  }
+
   const safeFileName = path.basename(fileName);
   if (safeFileName !== fileName) {
     throw new Error("invalid file name");
