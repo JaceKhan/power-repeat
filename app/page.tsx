@@ -743,6 +743,36 @@ export default function Home() {
     setNotice("저장된 본문 템플릿을 불러왔습니다. 반과 마감일을 확인한 뒤 배정하세요.");
   };
 
+  const deleteAssignmentForClass = async (assignment: Assignment) => {
+    const confirmed = window.confirm(
+      `"${assignment.passageTitle}" 과제를 삭제할까요?\n제출 기록과 녹음 파일도 함께 삭제됩니다. 템플릿은 유지됩니다.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await fetch(`/api/assignments/${assignment.id}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) {
+        throw new Error("delete assignment request failed");
+      }
+
+      if (selectedAssignmentId === assignment.id) {
+        setSelectedAssignmentId("");
+      }
+      await loadState();
+      setNotice("과제가 삭제되었습니다. 템플릿은 보관함에 남아 있습니다.");
+    } catch {
+      setNotice("과제 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const createClass = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!classForm.name.trim()) {
@@ -1455,6 +1485,14 @@ export default function Home() {
                         {relatedSubmissions.length}/{assignedStudents.length}
                       </strong>
                     </div>
+                    <button
+                      className="assignment-delete-button"
+                      disabled={isSaving}
+                      type="button"
+                      onClick={() => deleteAssignmentForClass(assignment)}
+                    >
+                      과제 삭제
+                    </button>
                     <div className="student-grade-list">
                       {assignedStudents.map((student) => {
                         const submission = relatedSubmissions.find((item) => item.studentId === student.id);
