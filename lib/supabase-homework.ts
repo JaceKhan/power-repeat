@@ -321,6 +321,34 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
   return mapAssignment(asRow(assignmentRow), new Map([[getString(classData, "id"), mapClass(classData)]]), new Map());
 };
 
+export const deleteSupabaseAssignment = async (assignmentId: string) => {
+  const supabase = getSupabaseAdmin();
+  const { data: submissions, error: submissionsError } = await supabase
+    .from("submissions")
+    .select("audio_path")
+    .eq("assignment_id", assignmentId);
+
+  if (submissionsError) {
+    throw submissionsError;
+  }
+
+  const audioPaths = (submissions ?? [])
+    .map((submission) => getOptionalString(asRow(submission), "audio_path"))
+    .filter((audioPath): audioPath is string => Boolean(audioPath));
+
+  if (audioPaths.length) {
+    await supabase.storage.from(RECORDINGS_BUCKET).remove(audioPaths);
+  }
+
+  const { error } = await supabase.from("assignments").delete().eq("id", assignmentId);
+
+  if (error) {
+    throw error;
+  }
+
+  return { ok: true };
+};
+
 export const createSupabaseClassGroup = async (input: CreateClassInput) => {
   const supabase = getSupabaseAdmin();
   const name = assertText(input.name, "name");

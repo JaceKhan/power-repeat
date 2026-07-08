@@ -25,6 +25,7 @@ type PrepSegment = {
 
 const DEFAULT_FORM_DUE_DATE = "2026-06-24";
 const TARGET_PREP_SEGMENT_LENGTH = 150;
+const MAX_PREP_SEGMENTS = 15;
 const SPEECH_RATE = 0.88;
 
 const formatDateTime = (value: string) =>
@@ -79,6 +80,11 @@ const blobToDataUrl = (blob: Blob) =>
   });
 
 const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
+  const normalizedPassage = passage.replace(/\s+/g, " ").trim();
+  const targetLength = Math.max(
+    TARGET_PREP_SEGMENT_LENGTH,
+    Math.ceil(normalizedPassage.length / MAX_PREP_SEGMENTS)
+  );
   const sentences = passage
     .replace(/\s+/g, " ")
     .trim()
@@ -91,7 +97,7 @@ const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
 
   sentences.forEach((sentence) => {
     const next = current ? `${current} ${sentence}` : sentence;
-    if (current && next.length > TARGET_PREP_SEGMENT_LENGTH) {
+    if (current && next.length > targetLength) {
       segments.push(current);
       current = sentence;
     } else {
@@ -101,6 +107,15 @@ const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
 
   if (current) {
     segments.push(current);
+  }
+
+  while (segments.length > MAX_PREP_SEGMENTS) {
+    const last = segments.pop();
+    if (!last) {
+      break;
+    }
+
+    segments[segments.length - 1] = `${segments[segments.length - 1]} ${last}`;
   }
 
   return segments.map((text, index) => ({
@@ -726,6 +741,36 @@ export default function Home() {
       instructions: template.instructions
     }));
     setNotice("저장된 본문 템플릿을 불러왔습니다. 반과 마감일을 확인한 뒤 배정하세요.");
+  };
+
+  const deleteAssignmentForClass = async (assignment: Assignment) => {
+    const confirmed = window.confirm(
+      `"${assignment.passageTitle}" 과제를 삭제할까요?\n제출 기록과 녹음 파일도 함께 삭제됩니다. 템플릿은 유지됩니다.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await fetch(`/api/assignments/${assignment.id}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) {
+        throw new Error("delete assignment request failed");
+      }
+
+      if (selectedAssignmentId === assignment.id) {
+        setSelectedAssignmentId("");
+      }
+      await loadState();
+      setNotice("과제가 삭제되었습니다. 템플릿은 보관함에 남아 있습니다.");
+    } catch {
+      setNotice("과제 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const createClass = async (event: FormEvent<HTMLFormElement>) => {
@@ -1440,6 +1485,14 @@ export default function Home() {
                         {relatedSubmissions.length}/{assignedStudents.length}
                       </strong>
                     </div>
+                    <button
+                      className="assignment-delete-button"
+                      disabled={isSaving}
+                      type="button"
+                      onClick={() => deleteAssignmentForClass(assignment)}
+                    >
+                      과제 삭제
+                    </button>
                     <div className="student-grade-list">
                       {assignedStudents.map((student) => {
                         const submission = relatedSubmissions.find((item) => item.studentId === student.id);
@@ -1637,8 +1690,8 @@ export default function Home() {
                       <div>
                         <strong>먼저 듣고 따라 읽기</strong>
                         <p>
-                          본문을 약 150자 전후 듣기 구간으로 나눴습니다. 모든 구간을 끝까지 들으면 A+
-                          준비 표시가 됩니다.
+                          본문을 약 150자 전후 듣기 구간으로 나누고, 긴 글도 최대 15개 구간까지만
+                          표시합니다. 모든 구간을 끝까지 들으면 A+ 준비 표시가 됩니다.
                         </p>
                       </div>
                       <div className="button-row">
