@@ -70,6 +70,40 @@ const assertText = (value: unknown, fieldName: string) => {
   return value.trim();
 };
 
+const toError = (error: unknown, fallback = "Supabase request failed") => {
+  if (error instanceof Error) {
+    return error;
+  }
+
+  if (error && typeof error === "object") {
+    const record = error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+    const parts = [record.message, record.details, record.hint, record.code]
+      .map((part) => (typeof part === "string" ? part.trim() : ""))
+      .filter(Boolean);
+    if (parts.length) {
+      return new Error(parts.join(" | "));
+    }
+  }
+
+  return new Error(fallback);
+};
+
+const isMissingColumnError = (error: unknown) => {
+  const normalized = toError(error);
+  const message = normalized.message.toLowerCase();
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? String((error as { code?: unknown }).code ?? "")
+      : "";
+
+  return (
+    code === "PGRST204" ||
+    message.includes("schema cache") ||
+    message.includes("could not find") ||
+    (message.includes("column") && message.includes("does not exist"))
+  );
+};
+
 const buildAssignmentTitle = ({
   bookName,
   level,
@@ -302,7 +336,7 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
     .single();
 
   if (classError) {
-    throw classError;
+    throw toError(classError, "class not found");
   }
 
   const { data: templateRow, error: templateError } = await supabase
@@ -322,7 +356,7 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
     .single();
 
   if (templateError) {
-    throw templateError;
+    throw toError(templateError, "Unable to save passage template");
   }
 
   const tempId = `a-${randomUUID()}`;
@@ -338,26 +372,47 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
   const sessions = materializeSessions(sessionDrafts, tempId);
   const lastDueDate = sessions[sessions.length - 1]?.dueDate || dueDate;
 
-  const { data: assignmentRow, error: assignmentError } = await supabase
+  const basePayload = {
+    template_id: templateRow.id,
+    class_id: classRow.id,
+    title,
+    book_name: bookName,
+    level,
+    passage_title: passageTitle,
+    passage,
+    instructions,
+    due_date: lastDueDate
+  };
+
+  let assignmentRow: unknown = null;
+  const scheduledInsert = await supabase
     .from("assignments")
     .insert({
-      template_id: templateRow.id,
-      class_id: classRow.id,
-      title,
-      book_name: bookName,
-      level,
-      passage_title: passageTitle,
-      passage,
-      instructions,
-      due_date: lastDueDate,
+      ...basePayload,
       mode,
       sessions
     })
     .select()
     .single();
 
-  if (assignmentError) {
-    throw assignmentError;
+  if (scheduledInsert.error) {
+    if (!isMissingColumnError(scheduledInsert.error)) {
+      throw toError(scheduledInsert.error, "Unable to create assignment");
+    }
+
+    if (mode !== "single" || sessions.length > 1) {
+      throw new Error(
+        "회차 배정(구간 분할/통 반복)을 쓰려면 Supabase assignments 테이블에 mode, sessions 컬럼이 필요합니다. DEPLOYMENT.md의 SQL을 실행해 주세요."
+      );
+    }
+
+    const fallbackInsert = await supabase.from("assignments").insert(basePayload).select().single();
+    if (fallbackInsert.error) {
+      throw toError(fallbackInsert.error, "Unable to create assignment");
+    }
+    assignmentRow = fallbackInsert.data;
+  } else {
+    assignmentRow = scheduledInsert.data;
   }
 
   const classData = asRow(classRow);
@@ -378,7 +433,14 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
       })),
       mapped.id
     );
-    await supabase.from("assignments").update({ sessions: mapped.sessions }).eq("id", mapped.id);
+    const { error: sessionUpdateError } = await supabase
+      .from("assignments")
+      .update({ sessions: mapped.sessions, mode: mapped.mode })
+      .eq("id", mapped.id);
+
+    if (sessionUpdateError && !isMissingColumnError(sessionUpdateError)) {
+      throw toError(sessionUpdateError, "Unable to save assignment sessions");
+    }
   }
 
   return mapped;
@@ -518,8 +580,8 @@ export const createSupabaseSubmission = async (input: CreateSubmissionInput) => 
       supabase.from("students").select("*, classes(*)").eq("id", studentId).eq("active", true).single()
     ]);
 
-  if (assignmentError) throw assignmentError;
-  if (studentError) throw studentError;
+  if (assignmentError) throw toError(assignmentError);
+  if (studentError) throw toError(studentError);
 
   if (studentRow.class_id !== assignmentRow.class_id) {
     throw new Error("student is not assigned to this class");
@@ -531,19 +593,35 @@ export const createSupabaseSubmission = async (input: CreateSubmissionInput) => 
     throw new Error("session not found");
   }
 
-  const { data: previousSubmission, error: previousError } = await supabase
+  let previousSubmission: Record<string, unknown> | null = null;
+  const previousBySession = await supabase
     .from("submissions")
     .select("*")
     .eq("session_id", sessionId)
     .eq("student_id", studentId)
     .maybeSingle();
 
-  if (previousError) {
-    throw previousError;
+  if (previousBySession.error && !isMissingColumnError(previousBySession.error)) {
+    throw toError(previousBySession.error);
+  }
+
+  if (previousBySession.error && isMissingColumnError(previousBySession.error)) {
+    const previousByAssignment = await supabase
+      .from("submissions")
+      .select("*")
+      .eq("assignment_id", assignmentId)
+      .eq("student_id", studentId)
+      .maybeSingle();
+    if (previousByAssignment.error) {
+      throw toError(previousByAssignment.error);
+    }
+    previousSubmission = previousByAssignment.data ? asRow(previousByAssignment.data) : null;
+  } else {
+    previousSubmission = previousBySession.data ? asRow(previousBySession.data) : null;
   }
 
   if (previousSubmission?.audio_path) {
-    await supabase.storage.from(RECORDINGS_BUCKET).remove([previousSubmission.audio_path]);
+    await supabase.storage.from(RECORDINGS_BUCKET).remove([String(previousSubmission.audio_path)]);
   }
 
   const extension = getAudioExtension(input.audio);
@@ -557,7 +635,7 @@ export const createSupabaseSubmission = async (input: CreateSubmissionInput) => 
     });
 
   if (uploadError) {
-    throw uploadError;
+    throw toError(uploadError);
   }
 
   const durationSec = Math.max(Math.round(input.durationSec), 1);
@@ -575,9 +653,8 @@ export const createSupabaseSubmission = async (input: CreateSubmissionInput) => 
     durationSec,
     prepCompleted
   });
-  const submissionPayload = {
+  const baseSubmissionPayload = {
     assignment_id: assignmentId,
-    session_id: sessionId,
     student_id: studentId,
     audio_path: audioPath,
     audio_content_type: input.audio.type || "audio/webm",
@@ -592,20 +669,36 @@ export const createSupabaseSubmission = async (input: CreateSubmissionInput) => 
     score: null
   };
 
-  const query = previousSubmission
-    ? supabase.from("submissions").update(submissionPayload).eq("id", previousSubmission.id)
-    : supabase.from("submissions").insert(submissionPayload);
-  const { data, error } = await query.select().single();
+  const saveSubmission = async (payload: Record<string, unknown>) => {
+    if (previousSubmission?.id) {
+      return supabase.from("submissions").update(payload).eq("id", String(previousSubmission.id)).select().single();
+    }
+    return supabase.from("submissions").insert(payload).select().single();
+  };
 
-  if (error) {
-    throw error;
+  let saved = await saveSubmission({
+    ...baseSubmissionPayload,
+    session_id: sessionId
+  });
+
+  if (saved.error && isMissingColumnError(saved.error)) {
+    if (assignment.sessions.length > 1) {
+      throw new Error(
+        "회차별 제출을 쓰려면 Supabase submissions 테이블에 session_id 컬럼이 필요합니다. DEPLOYMENT.md의 SQL을 실행해 주세요."
+      );
+    }
+    saved = await saveSubmission(baseSubmissionPayload);
+  }
+
+  if (saved.error) {
+    throw toError(saved.error);
   }
 
   const studentData = asRow(studentRow);
   const classGroup = mapClass(asRow(studentData.classes));
   const student = mapStudent(studentData, new Map([[classGroup.id, classGroup]]));
 
-  return mapSubmission(asRow(data), new Map([[student.id, student]]), new Map([[assignment.id, assignment]]));
+  return mapSubmission(asRow(saved.data), new Map([[student.id, student]]), new Map([[assignment.id, assignment]]));
 };
 
 export const reviewSupabaseSubmission = async (submissionId: string, input: ReviewSubmissionInput) => {

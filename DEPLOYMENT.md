@@ -30,6 +30,10 @@ create index if not exists submissions_session_student_idx
   on submissions (session_id, student_id);
 ```
 
+이 SQL을 아직 실행하지 않으면:
+- **통 배정(1회)** 은 기존 컬럼만으로도 동작합니다.
+- **구간 분할 / 통 반복** 은 실패하며, 화면에 마이그레이션 안내가 표시됩니다.
+
 ## 2. Vercel 환경변수
 
 Vercel 프로젝트 Settings > Environment Variables에 아래 값을 추가합니다.
