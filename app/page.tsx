@@ -25,6 +25,7 @@ type PrepSegment = {
 
 const DEFAULT_FORM_DUE_DATE = "2026-06-24";
 const TARGET_PREP_SEGMENT_LENGTH = 150;
+const MAX_PREP_SEGMENTS = 15;
 const SPEECH_RATE = 0.88;
 
 const formatDateTime = (value: string) =>
@@ -79,19 +80,22 @@ const blobToDataUrl = (blob: Blob) =>
   });
 
 const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
-  const sentences = passage
-    .replace(/\s+/g, " ")
-    .trim()
+  const normalizedPassage = passage.replace(/\s+/g, " ").trim();
+  const targetLength = Math.max(
+    TARGET_PREP_SEGMENT_LENGTH,
+    Math.ceil(normalizedPassage.length / MAX_PREP_SEGMENTS)
+  );
+  const sentences = normalizedPassage
     .match(/[^.!?]+[.!?]+|[^.!?]+$/g)
     ?.map((sentence) => sentence.trim())
-    .filter(Boolean) ?? [passage.trim()].filter(Boolean);
+    .filter(Boolean) ?? [normalizedPassage].filter(Boolean);
 
   const segments: string[] = [];
   let current = "";
 
   sentences.forEach((sentence) => {
     const next = current ? `${current} ${sentence}` : sentence;
-    if (current && next.length > TARGET_PREP_SEGMENT_LENGTH) {
+    if (current && next.length > targetLength) {
       segments.push(current);
       current = sentence;
     } else {
@@ -101,6 +105,15 @@ const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
 
   if (current) {
     segments.push(current);
+  }
+
+  while (segments.length > MAX_PREP_SEGMENTS) {
+    const last = segments.pop();
+    if (!last) {
+      break;
+    }
+
+    segments[segments.length - 1] = `${segments[segments.length - 1]} ${last}`;
   }
 
   return segments.map((text, index) => ({
@@ -1637,8 +1650,8 @@ export default function Home() {
                       <div>
                         <strong>먼저 듣고 따라 읽기</strong>
                         <p>
-                          본문을 약 150자 전후 듣기 구간으로 나눴습니다. 모든 구간을 끝까지 들으면 A+
-                          준비 표시가 됩니다.
+                          본문을 약 150자 전후 듣기 구간으로 나누고, 긴 글도 최대 15개 구간까지만
+                          표시합니다. 모든 구간을 끝까지 들으면 A+ 준비 표시가 됩니다.
                         </p>
                       </div>
                       <div className="button-row">
