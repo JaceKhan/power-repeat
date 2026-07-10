@@ -400,8 +400,9 @@ audio {
 }
 
 .calendar-day.tone-pending {
-  background: #eff6ff;
-  border-color: #93c5fd;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #64748b;
   box-shadow: none;
 }
 
