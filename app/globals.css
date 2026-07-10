@@ -938,6 +938,12 @@ textarea:focus {
   margin: 0;
 }
 
+.assignment-card h3 {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
 .assignment-card h3,
 .assignment-card span {
   font-weight: 900;
@@ -1013,6 +1019,84 @@ textarea:focus {
 .assign-summary {
   align-items: center;
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.existing-homework-panel {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.existing-homework-heading {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.existing-homework-heading strong {
+  font-size: 15px;
+}
+
+.existing-homework-heading span {
+  background: #e2e8f0;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 10px;
+}
+
+.existing-homework-list {
+  display: grid;
+  gap: 10px;
+}
+
+.existing-homework-item {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.existing-homework-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.existing-homework-main strong {
+  font-size: 14px;
+}
+
+.existing-homework-main small {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.compact-empty {
+  margin: 0;
+  padding: 8px 0;
+}
+
+.status-class-filter {
+  display: grid;
+  gap: 6px;
+  min-width: 160px;
+}
+
+.status-class-filter select {
+  min-width: 160px;
 }
 
 .assign-mode-summary {
