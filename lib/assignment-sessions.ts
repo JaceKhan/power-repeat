@@ -6,12 +6,14 @@ export type AssignmentMode = "single" | "split" | "repeat";
 export type AssignmentSession = {
   id: string;
   index: number;
+  assignedDate: string;
   dueDate: string;
   segmentStart: number;
   segmentEnd: number;
 };
 
 export type SessionDraft = {
+  assignedDate: string;
   dueDate: string;
   segmentStart: number;
   segmentEnd: number;
@@ -28,6 +30,22 @@ export const addDaysToDateString = (dateString: string, days: number) => {
   date.setDate(date.getDate() + days);
   return date.toISOString().slice(0, 10);
 };
+
+/** Soft deadline: Sunday of the week that contains the assigned day (Mon–Sun week). */
+export const getWeekSunday = (dateString: string) => {
+  const date = new Date(`${dateString}T12:00:00`);
+  const day = date.getDay(); // 0 Sun ... 6 Sat
+  const diff = day === 0 ? 0 : 7 - day;
+  date.setDate(date.getDate() + diff);
+  return date.toISOString().slice(0, 10);
+};
+
+export const formatAssignedDateLabel = (dateString: string) =>
+  new Intl.DateTimeFormat("ko-KR", {
+    month: "numeric",
+    day: "numeric",
+    weekday: "short"
+  }).format(new Date(`${dateString}T12:00:00`));
 
 export const buildEqualSegmentRanges = (segmentCount: number, sessionCount: number) => {
   const safeSegments = Math.max(segmentCount, 1);
@@ -48,6 +66,17 @@ export const buildEqualSegmentRanges = (segmentCount: number, sessionCount: numb
   return ranges;
 };
 
+const toDraft = (
+  assignedDate: string,
+  segmentStart: number,
+  segmentEnd: number
+): SessionDraft => ({
+  assignedDate,
+  dueDate: getWeekSunday(assignedDate),
+  segmentStart,
+  segmentEnd
+});
+
 export const buildSessionDrafts = ({
   mode,
   passage,
@@ -67,8 +96,8 @@ export const buildSessionDrafts = ({
   const lastSegment = Math.max(segments.length - 1, 0);
 
   if (mode === "single") {
-    const dueDate = sessionDates?.[0] || startDate;
-    return [{ dueDate, segmentStart: 0, segmentEnd: lastSegment }];
+    const assignedDate = sessionDates?.[0] || startDate;
+    return [toDraft(assignedDate, 0, lastSegment)];
   }
 
   const count = Math.max(1, Math.min(sessionCount, 7));
@@ -78,38 +107,33 @@ export const buildSessionDrafts = ({
       : Array.from({ length: count }, (_, index) => addDaysToDateString(startDate, index));
 
   if (mode === "repeat") {
-    return dates.map((dueDate) => ({
-      dueDate,
-      segmentStart: 0,
-      segmentEnd: lastSegment
-    }));
+    return dates.map((assignedDate) => toDraft(assignedDate, 0, lastSegment));
   }
 
   const ranges = segmentRanges?.length
     ? segmentRanges.slice(0, count)
     : buildEqualSegmentRanges(segments.length || 1, count);
 
-  return dates.map((dueDate, index) => {
+  return dates.map((assignedDate, index) => {
     const range = ranges[index] ?? { segmentStart: 0, segmentEnd: lastSegment };
-    return {
-      dueDate,
-      segmentStart: Math.max(0, Math.min(range.segmentStart, lastSegment)),
-      segmentEnd: Math.max(
-        Math.max(0, Math.min(range.segmentStart, lastSegment)),
-        Math.min(range.segmentEnd, lastSegment)
-      )
-    };
+    const segmentStart = Math.max(0, Math.min(range.segmentStart, lastSegment));
+    const segmentEnd = Math.max(segmentStart, Math.min(range.segmentEnd, lastSegment));
+    return toDraft(assignedDate, segmentStart, segmentEnd);
   });
 };
 
 export const materializeSessions = (drafts: SessionDraft[], assignmentId?: string): AssignmentSession[] =>
-  drafts.map((draft, index) => ({
-    id: assignmentId ? `${assignmentId}-s${index + 1}` : `s-${randomUUID()}`,
-    index: index + 1,
-    dueDate: draft.dueDate,
-    segmentStart: draft.segmentStart,
-    segmentEnd: draft.segmentEnd
-  }));
+  drafts.map((draft, index) => {
+    const assignedDate = draft.assignedDate || draft.dueDate;
+    return {
+      id: assignmentId ? `${assignmentId}-s${index + 1}` : `s-${randomUUID()}`,
+      index: index + 1,
+      assignedDate,
+      dueDate: draft.dueDate || getWeekSunday(assignedDate),
+      segmentStart: draft.segmentStart,
+      segmentEnd: draft.segmentEnd
+    };
+  });
 
 export const getSessionPassage = (passage: string, session: AssignmentSession) => {
   const segments = splitPassageIntoPrepSegments(passage);
@@ -139,6 +163,22 @@ export const getSessionPrepSegments = (passage: string, session: AssignmentSessi
   }));
 };
 
+export const normalizeSession = (
+  session: Partial<AssignmentSession> & { dueDate: string },
+  index: number,
+  assignmentId: string
+): AssignmentSession => {
+  const assignedDate = session.assignedDate || session.dueDate;
+  return {
+    id: session.id || `${assignmentId}-s${index + 1}`,
+    index: session.index || index + 1,
+    assignedDate,
+    dueDate: session.dueDate || getWeekSunday(assignedDate),
+    segmentStart: Number.isFinite(session.segmentStart) ? Number(session.segmentStart) : 0,
+    segmentEnd: Number.isFinite(session.segmentEnd) ? Number(session.segmentEnd) : 0
+  };
+};
+
 export const ensureAssignmentSessions = <
   T extends {
     id: string;
@@ -154,15 +194,15 @@ export const ensureAssignmentSessions = <
     return {
       ...assignment,
       mode: assignment.mode ?? (assignment.sessions.length > 1 ? "split" : "single"),
-      sessions: assignment.sessions.map((session, index) => ({
-        ...session,
-        index: session.index || index + 1
-      }))
+      sessions: assignment.sessions.map((session, index) =>
+        normalizeSession(session, index, assignment.id)
+      )
     };
   }
 
   const segments = splitPassageIntoPrepSegments(assignment.passage);
   const lastSegment = Math.max(segments.length - 1, 0);
+  const assignedDate = assignment.dueDate;
   return {
     ...assignment,
     mode: "single",
@@ -170,7 +210,8 @@ export const ensureAssignmentSessions = <
       {
         id: `${assignment.id}-s1`,
         index: 1,
-        dueDate: assignment.dueDate,
+        assignedDate,
+        dueDate: getWeekSunday(assignedDate),
         segmentStart: 0,
         segmentEnd: lastSegment
       }

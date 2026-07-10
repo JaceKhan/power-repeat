@@ -15,8 +15,10 @@ import type {
 import {
   ASSIGNMENT_MODE_LABEL,
   buildSessionDrafts,
+  formatAssignedDateLabel,
   getSessionPassage,
   getSessionPrepSegments,
+  getWeekSunday,
   type SessionDraft
 } from "@/lib/assignment-sessions";
 import { splitPassageIntoPrepSegments, type PrepSegment } from "@/lib/passage-segments";
@@ -54,7 +56,7 @@ const getDefaultDueDate = () => {
 };
 
 const SPEECH_RATE = 0.88;
-const MIN_SESSION_COUNT = 2;
+const MIN_SESSION_COUNT = 1;
 const MAX_SESSION_COUNT = 5;
 const assignmentModeOptions: Array<{ value: AssignmentMode; label: string; helper: string }> = [
   { value: "single", label: "통 배정", helper: "한 번에 전체 본문" },
@@ -128,6 +130,14 @@ const toDateInputValue = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
+const getSessionAssignedDate = (session: Pick<AssignmentSession, "assignedDate" | "dueDate">) =>
+  session.assignedDate || session.dueDate;
+
+const getDraftAssignedDate = (draft: SessionDraft) => draft.assignedDate || draft.dueDate;
+
+const getUniqueSortedDates = (dates: string[]) =>
+  Array.from(new Set(dates.filter(Boolean))).sort((left, right) => left.localeCompare(right));
+
 const clampSessionCount = (count: number) =>
   Math.max(MIN_SESSION_COUNT, Math.min(MAX_SESSION_COUNT, Math.round(count) || MIN_SESSION_COUNT));
 
@@ -143,7 +153,7 @@ const buildDraftsForForm = (
     passage: form.passage,
     startDate: form.dueDate,
     sessionCount: getSessionCountForMode(form.mode, form.sessionCount),
-    sessionDates: options.resetDates ? undefined : form.sessionDrafts.map((draft) => draft.dueDate),
+    sessionDates: options.resetDates ? undefined : form.sessionDrafts.map(getDraftAssignedDate),
     segmentRanges: options.resetRanges
       ? undefined
       : form.sessionDrafts.map((draft) => ({
@@ -167,10 +177,7 @@ const getInitialAssignmentForm = (): AssignmentForm => {
     sessionDrafts: []
   };
 
-  return {
-    ...baseForm,
-    sessionDrafts: buildDraftsForForm(baseForm, { resetDates: true, resetRanges: true })
-  };
+  return baseForm;
 };
 
 const getSessionSummary = (assignment: Pick<Assignment, "mode" | "sessions">, session: AssignmentSession) => {
@@ -187,6 +194,54 @@ const getDraftSummary = (mode: AssignmentMode, draft: SessionDraft) => {
   }
 
   return `${draft.segmentStart + 1}-${draft.segmentEnd + 1}번 구간`;
+};
+
+const formatSessionScheduleLabel = (assignedDate: string, dueDate?: string) =>
+  `배정 ${formatAssignedDateLabel(assignedDate)} · ~${formatAssignedDateLabel(
+    dueDate || getWeekSunday(assignedDate)
+  )}까지`;
+
+const buildFormWithAssignedDates = (
+  form: AssignmentForm,
+  dates: string[],
+  options: { resetRanges?: boolean } = {}
+): AssignmentForm => {
+  const sessionDates = getUniqueSortedDates(dates).slice(
+    0,
+    form.mode === "single" ? 1 : MAX_SESSION_COUNT
+  );
+
+  if (!sessionDates.length) {
+    return {
+      ...form,
+      sessionCount: 1,
+      sessionDrafts: []
+    };
+  }
+
+  const sessionCount = form.mode === "single" ? 1 : clampSessionCount(sessionDates.length);
+  const nextForm: AssignmentForm = {
+    ...form,
+    dueDate: getWeekSunday(sessionDates[sessionDates.length - 1]),
+    sessionCount
+  };
+
+  return {
+    ...nextForm,
+    sessionDrafts: buildSessionDrafts({
+      mode: nextForm.mode,
+      passage: nextForm.passage,
+      startDate: sessionDates[0],
+      sessionCount,
+      sessionDates,
+      segmentRanges: options.resetRanges
+        ? undefined
+        : form.sessionDrafts.map((draft) => ({
+            segmentStart: draft.segmentStart,
+            segmentEnd: draft.segmentEnd
+          }))
+    })
+  };
 };
 
 const blobToDataUrl = (blob: Blob) =>
@@ -215,6 +270,7 @@ export default function Home() {
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [calendarMonth, setCalendarMonth] = useState(() => getMonthStart(new Date()));
+  const [teacherCalendarMonth, setTeacherCalendarMonth] = useState(() => getMonthStart(new Date()));
   const [selectedCalendarDate, setSelectedCalendarDate] = useState("");
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingSec, setRecordingSec] = useState(0);
@@ -275,6 +331,7 @@ export default function Home() {
         )
         .sort(
           (left, right) =>
+            getSessionAssignedDate(left.session).localeCompare(getSessionAssignedDate(right.session)) ||
             left.session.dueDate.localeCompare(right.session.dueDate) ||
             left.assignment.passageTitle.localeCompare(right.assignment.passageTitle) ||
             left.session.index - right.session.index
@@ -342,9 +399,10 @@ export default function Home() {
   const sessionsByDate = useMemo(() => {
     const byDate = new Map<string, VisibleSession[]>();
     visibleSessions.forEach((item) => {
-      const items = byDate.get(item.session.dueDate) ?? [];
+      const assignedDate = getSessionAssignedDate(item.session);
+      const items = byDate.get(assignedDate) ?? [];
       items.push(item);
-      byDate.set(item.session.dueDate, items);
+      byDate.set(assignedDate, items);
     });
     return byDate;
   }, [visibleSessions]);
@@ -371,11 +429,37 @@ export default function Home() {
     [calendarMonth]
   );
   const todayDateString = useMemo(() => toDateInputValue(new Date()), []);
+  const selectedTeacherDates = useMemo(
+    () => getUniqueSortedDates(form.sessionDrafts.map(getDraftAssignedDate)),
+    [form.sessionDrafts]
+  );
+  const teacherSelectedDateSet = useMemo(() => new Set(selectedTeacherDates), [selectedTeacherDates]);
+  const teacherCalendarDays = useMemo(() => {
+    const monthStartDate = getMonthStart(teacherCalendarMonth);
+    const gridStart = getWeekStart(monthStartDate);
+
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(gridStart);
+      date.setDate(gridStart.getDate() + index);
+      const dateString = toDateInputValue(date);
+      return {
+        date,
+        dateString,
+        isAssigned: teacherSelectedDateSet.has(dateString),
+        isCurrentMonth: date.getMonth() === monthStartDate.getMonth()
+      };
+    });
+  }, [teacherCalendarMonth, teacherSelectedDateSet]);
+  const teacherCalendarTitle = useMemo(
+    () =>
+      new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long" }).format(teacherCalendarMonth),
+    [teacherCalendarMonth]
+  );
 
   const homeworkListSessions = useMemo(
     () =>
       selectedCalendarDate
-        ? visibleSessions.filter((item) => item.session.dueDate === selectedCalendarDate)
+        ? visibleSessions.filter((item) => getSessionAssignedDate(item.session) === selectedCalendarDate)
         : visibleSessions,
     [selectedCalendarDate, visibleSessions]
   );
@@ -917,7 +1001,10 @@ export default function Home() {
 
       return {
         ...nextForm,
-        sessionDrafts: buildDraftsForForm(nextForm, options)
+        sessionDrafts:
+          current.sessionDrafts.length === 0 && !options.resetDates
+            ? []
+            : buildDraftsForForm(nextForm, options)
       };
     });
   };
@@ -943,8 +1030,12 @@ export default function Home() {
           Math.min(Math.round(draftWithChanges.segmentEnd), lastSegmentIndex)
         );
 
+        const assignedDate = draftWithChanges.assignedDate || draftWithChanges.dueDate;
+
         return {
           ...draftWithChanges,
+          assignedDate,
+          dueDate: assignedDate ? getWeekSunday(assignedDate) : draftWithChanges.dueDate,
           segmentStart,
           segmentEnd
         };
@@ -952,9 +1043,47 @@ export default function Home() {
 
       return {
         ...current,
-        dueDate: current.mode === "single" ? (nextDrafts[0]?.dueDate ?? current.dueDate) : current.dueDate,
+        dueDate: nextDrafts[nextDrafts.length - 1]?.dueDate ?? current.dueDate,
         sessionDrafts: nextDrafts
       };
+    });
+  };
+
+  const changeAssignmentMode = (mode: AssignmentMode) => {
+    setForm((current) => {
+      const dates = getUniqueSortedDates(current.sessionDrafts.map(getDraftAssignedDate));
+      const nextForm: AssignmentForm = {
+        ...current,
+        mode,
+        sessionCount: mode === "single" ? 1 : clampSessionCount(dates.length || current.sessionCount)
+      };
+
+      return buildFormWithAssignedDates(nextForm, mode === "single" ? dates.slice(0, 1) : dates, {
+        resetRanges: true
+      });
+    });
+  };
+
+  const selectTeacherCalendarDate = (dateString: string) => {
+    if (
+      form.mode !== "single" &&
+      !teacherSelectedDateSet.has(dateString) &&
+      selectedTeacherDates.length >= MAX_SESSION_COUNT
+    ) {
+      setNotice("배정일은 최대 5개까지 선택할 수 있습니다.");
+      return;
+    }
+
+    setForm((current) => {
+      const currentDates = getUniqueSortedDates(current.sessionDrafts.map(getDraftAssignedDate));
+      const nextDates =
+        current.mode === "single"
+          ? [dateString]
+          : currentDates.includes(dateString)
+            ? currentDates.filter((selectedDate) => selectedDate !== dateString)
+            : [...currentDates, dateString];
+
+      return buildFormWithAssignedDates(current, nextDates);
     });
   };
 
@@ -976,13 +1105,19 @@ export default function Home() {
     setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + monthOffset, 1));
   };
 
+  const moveTeacherCalendarMonth = (monthOffset: number) => {
+    setTeacherCalendarMonth(
+      (current) => new Date(current.getFullYear(), current.getMonth() + monthOffset, 1)
+    );
+  };
+
   const createAssignment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (assignStep !== 3) {
       return;
     }
-    if (!form.bookName.trim() || !form.passageTitle.trim() || !form.passage.trim() || !form.dueDate) {
-      setNotice("책이름, 본문제목, 본문, 마감일은 필수입니다.");
+    if (!form.bookName.trim() || !form.passageTitle.trim() || !form.passage.trim()) {
+      setNotice("책이름, 본문제목, 본문은 필수입니다.");
       setAssignStep(1);
       return;
     }
@@ -991,8 +1126,8 @@ export default function Home() {
       setAssignStep(2);
       return;
     }
-    if (!form.sessionDrafts.length || form.sessionDrafts.some((session) => !session.dueDate)) {
-      setNotice("각 세션의 마감일을 확인해 주세요.");
+    if (!form.sessionDrafts.length || form.sessionDrafts.some((session) => !session.assignedDate)) {
+      setNotice("달력에서 배정할 요일을 하나 이상 선택해 주세요.");
       setAssignStep(2);
       return;
     }
@@ -1032,10 +1167,7 @@ export default function Home() {
           sessionCount: 3,
           sessionDrafts: []
         };
-        return {
-          ...nextForm,
-          sessionDrafts: buildDraftsForForm(nextForm, { resetDates: true, resetRanges: true })
-        };
+        return nextForm;
       });
       setAssignStep(1);
       await loadState();
@@ -1057,9 +1189,9 @@ export default function Home() {
       step > 2 &&
       (!form.className.trim() ||
         !form.sessionDrafts.length ||
-        form.sessionDrafts.some((session) => !session.dueDate))
+        form.sessionDrafts.some((session) => !session.assignedDate))
     ) {
-      setNotice("2단계에서 반과 마감일을 확인해 주세요.");
+      setNotice("2단계에서 반을 선택하고 달력에서 배정할 요일을 하나 이상 선택해 주세요.");
       setAssignStep(2);
       return;
     }
@@ -1079,12 +1211,14 @@ export default function Home() {
 
       return {
         ...nextForm,
-        sessionDrafts: buildDraftsForForm(nextForm, { resetRanges: true })
+        sessionDrafts: current.sessionDrafts.length
+          ? buildDraftsForForm(nextForm, { resetRanges: true })
+          : []
       };
     });
     setAssignStep(2);
     setTeacherCategory("content");
-    setNotice("템플릿을 불러왔습니다. 반과 마감일을 확인한 뒤 배정하세요.");
+    setNotice("템플릿을 불러왔습니다. 반을 선택하고 달력에서 배정할 요일을 클릭하세요.");
     window.requestAnimationFrame(() => {
       document.getElementById("assignment-create")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
@@ -1428,7 +1562,7 @@ export default function Home() {
                 onClick={() => goToAssignStep(2)}
               >
                 <strong>2</strong>
-                <span>반·마감일</span>
+                <span>반·배정일</span>
               </button>
               <button
                 className={assignStep === 3 ? "active" : ""}
@@ -1499,7 +1633,7 @@ export default function Home() {
                   </label>
                   <div className="button-row">
                     <button className="primary-button" type="button" onClick={() => goToAssignStep(2)}>
-                      다음: 반·마감일
+                      다음: 반·배정일
                     </button>
                   </div>
                 </>
@@ -1507,7 +1641,10 @@ export default function Home() {
 
               {assignStep === 2 ? (
                 <>
-                  <p className="assign-step-copy">어느 반에, 어떤 방식으로 언제까지 낼지 정합니다.</p>
+                  <p className="assign-step-copy">
+                    달력에서 배정할 요일을 클릭하세요. 학생은 그날 하는 것이 원칙이고, 그 주
+                    일요일까지 제출할 수 있습니다.
+                  </p>
                   <div className="assign-summary">
                     <strong>
                       {form.bookName} / Level {form.level} / {form.passageTitle || "본문제목 없음"}
@@ -1516,33 +1653,21 @@ export default function Home() {
                       본문 {form.passage.trim().length}자 · 준비 구간 {formPrepSegments.length}개
                     </span>
                   </div>
-                  <div className="two-columns">
-                    <label>
-                      반
-                      <select
-                        value={form.className}
-                        onChange={(event) =>
-                          setForm((current) => ({ ...current, className: event.target.value }))
-                        }
-                      >
-                        {classes.map((classGroup) => (
-                          <option key={classGroup.id} value={classGroup.name}>
-                            {classGroup.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      {form.mode === "single" ? "마감일" : "첫 마감 기준일"}
-                      <input
-                        type="date"
-                        value={form.dueDate}
-                        onChange={(event) =>
-                          updateAssignmentForm({ dueDate: event.target.value }, { resetDates: true })
-                        }
-                      />
-                    </label>
-                  </div>
+                  <label>
+                    반
+                    <select
+                      value={form.className}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, className: event.target.value }))
+                      }
+                    >
+                      {classes.map((classGroup) => (
+                        <option key={classGroup.id} value={classGroup.name}>
+                          {classGroup.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <label>
                     배정 방식
                     <div className="mode-picker">
@@ -1551,12 +1676,7 @@ export default function Home() {
                           className={form.mode === option.value ? "active" : ""}
                           key={option.value}
                           type="button"
-                          onClick={() =>
-                            updateAssignmentForm(
-                              { mode: option.value },
-                              { resetRanges: true }
-                            )
-                          }
+                          onClick={() => changeAssignmentMode(option.value)}
                         >
                           <strong>{option.label}</strong>
                           <span>{option.helper}</span>
@@ -1564,50 +1684,62 @@ export default function Home() {
                       ))}
                     </div>
                   </label>
-                  {form.mode !== "single" ? (
-                    <>
-                      <div className="two-columns">
-                        <label>
-                          세션 수
-                          <select
-                            value={form.sessionCount}
-                            onChange={(event) =>
-                              updateAssignmentForm(
-                                { sessionCount: Number(event.target.value) },
-                                { resetRanges: true }
-                              )
-                            }
-                          >
-                            {[2, 3, 4, 5].map((count) => (
-                              <option key={count} value={count}>
-                                {count}회
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <div className="assign-summary">
-                          <strong>{ASSIGNMENT_MODE_LABEL[form.mode]}</strong>
-                          <span>
-                            {form.mode === "split"
-                              ? "기본은 균등 분할, 아래에서 미세 조정"
-                              : "각 세션은 전체 본문을 다시 제출합니다."}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="session-editor">
-                        {form.sessionDrafts.map((draft, index) => (
-                          <div className="session-editor-row" key={`${form.mode}-${index}`}>
+                  <div className="assign-mode-summary">
+                    <strong>{ASSIGNMENT_MODE_LABEL[form.mode]}</strong>
+                    <span>
+                      {form.mode === "single"
+                        ? "하루만 선택하면 전체 본문 1회차로 배정됩니다."
+                        : form.mode === "split"
+                          ? "선택한 요일 수만큼 회차가 생기고, 아래에서 구간을 미세 조정합니다."
+                          : "선택한 각 요일에 전체 본문을 반복 제출합니다."}
+                    </span>
+                  </div>
+                  <div className="homework-calendar assign-calendar">
+                    <div className="calendar-header">
+                      <button type="button" onClick={() => moveTeacherCalendarMonth(-1)}>
+                        이전
+                      </button>
+                      <strong>{teacherCalendarTitle}</strong>
+                      <button type="button" onClick={() => moveTeacherCalendarMonth(1)}>
+                        다음
+                      </button>
+                    </div>
+                    <div className="calendar-grid">
+                      {calendarWeekdayLabels.map((label) => (
+                        <span className="calendar-weekday" key={label}>
+                          {label}
+                        </span>
+                      ))}
+                      {teacherCalendarDays.map((day) => (
+                        <button
+                          aria-pressed={day.isAssigned}
+                          className={[
+                            "calendar-day",
+                            day.isAssigned ? "assigned" : "",
+                            todayDateString === day.dateString ? "today" : "",
+                            day.isCurrentMonth ? "" : "muted"
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                          key={day.dateString}
+                          type="button"
+                          onClick={() => selectTeacherCalendarDate(day.dateString)}
+                        >
+                          <span>{day.date.getDate()}</span>
+                          {day.isAssigned ? <small>배정</small> : null}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="session-editor assigned-session-list">
+                    {form.sessionDrafts.length ? (
+                      form.sessionDrafts.map((draft, index) => {
+                        const assignedDate = getDraftAssignedDate(draft);
+
+                        return (
+                          <div className="session-editor-row" key={`${form.mode}-${assignedDate}-${index}`}>
                             <strong>{index + 1}회차</strong>
-                            <label>
-                              마감일
-                              <input
-                                type="date"
-                                value={draft.dueDate}
-                                onChange={(event) =>
-                                  updateSessionDraft(index, { dueDate: event.target.value })
-                                }
-                              />
-                            </label>
+                            <span>{formatSessionScheduleLabel(assignedDate, draft.dueDate)}</span>
                             {form.mode === "split" ? (
                               <>
                                 <label>
@@ -1643,18 +1775,12 @@ export default function Home() {
                               <span>전체 본문</span>
                             )}
                           </div>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="session-editor">
-                      <div className="session-editor-row">
-                        <strong>1회차</strong>
-                        <span>마감 {form.sessionDrafts[0]?.dueDate ?? form.dueDate}</span>
-                        <span>전체 본문</span>
-                      </div>
-                    </div>
-                  )}
+                        );
+                      })
+                    ) : (
+                      <p className="empty">아직 선택한 배정일이 없습니다. 달력에서 요일을 클릭하세요.</p>
+                    )}
+                  </div>
                   <div className="button-row">
                     <button type="button" onClick={() => goToAssignStep(1)}>
                       이전
@@ -1681,8 +1807,14 @@ export default function Home() {
                       <strong>{form.className}</strong>
                     </div>
                     <div>
-                      <span>마감일</span>
-                      <strong>{form.sessionDrafts[form.sessionDrafts.length - 1]?.dueDate ?? form.dueDate}</strong>
+                      <span>최종 제출 기한</span>
+                      <strong>
+                        {form.sessionDrafts[form.sessionDrafts.length - 1]
+                          ? formatAssignedDateLabel(
+                              form.sessionDrafts[form.sessionDrafts.length - 1].dueDate
+                            )
+                          : "배정일 미선택"}
+                      </strong>
                     </div>
                     <div>
                       <span>배정 방식</span>
@@ -1694,7 +1826,7 @@ export default function Home() {
                         {form.sessionDrafts.map((draft, index) => (
                           <div className="session-editor-row" key={`confirm-${index}`}>
                             <strong>{index + 1}회차</strong>
-                            <span>{draft.dueDate}</span>
+                            <span>{formatSessionScheduleLabel(getDraftAssignedDate(draft), draft.dueDate)}</span>
                             <span>{getDraftSummary(form.mode, draft)}</span>
                           </div>
                         ))}
@@ -2042,6 +2174,8 @@ export default function Home() {
                 const assignedStudents = students.filter(
                   (student) => student.className === assignment.className
                 );
+                const firstSession = assignment.sessions[0];
+                const lastSession = assignment.sessions[assignment.sessions.length - 1];
                 const relatedSubmissions = submissions.filter(
                   (submission) => submission.assignmentId === assignment.id
                 );
@@ -2059,9 +2193,15 @@ export default function Home() {
                       <p>
                         {ASSIGNMENT_MODE_LABEL[assignment.mode]} · {assignment.sessions.length}회차
                       </p>
+                      {firstSession && lastSession ? (
+                        <p>
+                          첫 배정 {formatAssignedDateLabel(getSessionAssignedDate(firstSession))} · 최종 ~
+                          {formatAssignedDateLabel(lastSession.dueDate)}까지
+                        </p>
+                      ) : null}
                     </div>
                     <div className="metrics">
-                      <span>최종 마감 {assignment.dueDate}</span>
+                      <span>최종 제출 {formatAssignedDateLabel(assignment.dueDate)}까지</span>
                       <strong>
                         {submittedCount}/{totalSlots}
                       </strong>
@@ -2113,7 +2253,8 @@ export default function Home() {
                                 </strong>
                                 {sessionStatuses.map((item) => (
                                   <small className={`status ${item.status}`} key={item.session.id}>
-                                    {item.session.index}회 {homeworkStatusLabel[item.status]}
+                                    {item.session.index}회 {formatAssignedDateLabel(getSessionAssignedDate(item.session))}{" "}
+                                    {homeworkStatusLabel[item.status]}
                                   </small>
                                 ))}
                               </span>
@@ -2259,6 +2400,9 @@ export default function Home() {
               </select>
             </label>
             <div className="homework-calendar">
+              <p className="calendar-guidance">
+                배정된 요일에 하는 것이 원칙이며, 그 주 일요일까지 완료하면 됩니다.
+              </p>
               <div className="calendar-header">
                 <button type="button" onClick={() => moveCalendarMonth(-1)}>
                   이전
@@ -2307,6 +2451,7 @@ export default function Home() {
             <div className="assignment-list compact">
               {homeworkListSessions.map((item) => {
                 const { assignment, session } = item;
+                const assignedDate = getSessionAssignedDate(session);
                 const submission = submissions.find(
                   (submissionItem) =>
                     submissionItem.sessionId === session.id && submissionItem.studentId === selectedStudent?.id
@@ -2329,7 +2474,8 @@ export default function Home() {
                         {assignment.bookName} / Level {assignment.level}
                       </small>
                       <small>
-                        마감 {session.dueDate} · {getSessionSummary(assignment, session)}
+                        {formatSessionScheduleLabel(assignedDate, session.dueDate)} ·{" "}
+                        {getSessionSummary(assignment, session)}
                       </small>
                       <small>{ASSIGNMENT_MODE_LABEL[assignment.mode]}</small>
                     </span>
@@ -2364,7 +2510,9 @@ export default function Home() {
                     <span className={`status ${getHomeworkStatus(currentSubmission)}`}>
                       {homeworkStatusLabel[getHomeworkStatus(currentSubmission)]}
                     </span>
-                    <span className="badge">마감 {selectedSession.dueDate}</span>
+                    <span className="badge">
+                      {formatSessionScheduleLabel(getSessionAssignedDate(selectedSession), selectedSession.dueDate)}
+                    </span>
                   </div>
                 </div>
                 <div className="student-workspace">

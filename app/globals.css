@@ -594,6 +594,17 @@ textarea:focus {
   padding: 14px;
 }
 
+.assign-calendar {
+  margin-top: 0;
+}
+
+.calendar-guidance {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+
 .calendar-header {
   align-items: center;
   display: flex;
@@ -662,9 +673,25 @@ textarea:focus {
   color: white;
 }
 
+.calendar-day.assigned {
+  background: var(--brand);
+  border-color: var(--brand);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.18);
+  color: white;
+}
+
 .calendar-day.selected small {
   background: white;
   color: var(--brand);
+}
+
+.calendar-day.assigned small {
+  background: white;
+  border-radius: 999px;
+  color: var(--brand);
+  font-size: 10px;
+  min-width: 18px;
+  padding: 2px 5px;
 }
 
 .calendar-day.today {
@@ -892,6 +919,33 @@ textarea:focus {
 .assign-summary {
   align-items: center;
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.assign-mode-summary {
+  align-items: center;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 16px;
+  color: #1e3a8a;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  justify-content: space-between;
+  padding: 14px;
+}
+
+.assign-mode-summary span {
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.assigned-session-list .session-editor-row {
+  grid-template-columns: auto minmax(220px, 1fr) repeat(2, minmax(96px, 0.45fr));
+}
+
+.assigned-session-list .empty {
+  padding: 18px;
 }
 
 .assign-confirm > div {
