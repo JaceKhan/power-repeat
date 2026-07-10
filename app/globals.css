@@ -1280,6 +1280,30 @@ textarea:focus {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.assign-passage-label {
+  display: grid;
+  gap: 8px;
+}
+
+.assign-passage-hint {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.assign-passage-editor {
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  font-size: 16px;
+  line-height: 1.7;
+  min-height: 280px;
+}
+
+.assign-passage-editor--confirm {
+  min-height: 180px;
+  width: 100%;
+}
+
 .existing-homework-panel {
   background: #f8fafc;
   border: 1px solid var(--line);

@@ -1474,11 +1474,14 @@ export default function Home() {
           : []
       };
     });
-    setAssignStep(2);
+    setAssignStep(1);
     setTeacherCategory("content");
-    setNotice("템플릿을 불러왔습니다. 반을 선택하고 달력에서 배정할 요일을 클릭하세요.");
+    setNotice(
+      "템플릿을 불러왔습니다. 아래에서 본문을 확인·편집한 뒤(뺄 문장 삭제 등) 다음 단계로 진행하세요."
+    );
     window.requestAnimationFrame(() => {
       document.getElementById("assignment-create")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById("assign-passage-editor")?.focus();
     });
   };
 
@@ -1867,7 +1870,10 @@ export default function Home() {
               ) : null}
               {assignStep === 1 ? (
                 <>
-                  <p className="assign-step-copy">배정할 리딩 본문을 입력하거나 오른쪽 템플릿에서 불러오세요.</p>
+                  <p className="assign-step-copy">
+                    배정할 리딩 본문을 입력하거나 오른쪽 템플릿에서 불러오세요. 불러온 뒤에도 여기서
+                    문장을 빼거나 고칠 수 있습니다.
+                  </p>
                   <label>
                     책이름
                     <input
@@ -1901,15 +1907,21 @@ export default function Home() {
                       placeholder="예: The Great White"
                     />
                   </label>
-                  <label>
+                  <label className="assign-passage-label">
                     학생이 읽을 본문
+                    <span className="assign-passage-hint">
+                      필요 없는 문장은 여기서 지운 뒤 배정하세요. 현재 {form.passage.trim().length}자 ·
+                      듣기 구간 {formPrepSegments.length}개
+                    </span>
                     <textarea
+                      id="assign-passage-editor"
+                      className="assign-passage-editor"
                       value={form.passage}
                       onChange={(event) =>
                         updateAssignmentForm({ passage: event.target.value }, { resetRanges: true })
                       }
-                      placeholder="학생들이 녹음해야 할 영어 본문을 입력하세요."
-                      rows={8}
+                      placeholder="학생들이 녹음해야 할 영어 본문을 입력하세요. 템플릿을 불러오면 여기에 내용이 채워집니다."
+                      rows={14}
                     />
                   </label>
                   <label>
@@ -1944,6 +1956,20 @@ export default function Home() {
                       본문 {form.passage.trim().length}자 · 준비 구간 {formPrepSegments.length}개
                     </span>
                   </div>
+                  <label className="assign-passage-label">
+                    본문 확인·편집
+                    <span className="assign-passage-hint">
+                      배정 전에 뺄 문장이 있으면 여기서 지울 수 있습니다.
+                    </span>
+                    <textarea
+                      className="assign-passage-editor"
+                      value={form.passage}
+                      onChange={(event) =>
+                        updateAssignmentForm({ passage: event.target.value }, { resetRanges: true })
+                      }
+                      rows={10}
+                    />
+                  </label>
                   <label>
                     반
                     <select
@@ -2210,10 +2236,14 @@ export default function Home() {
                     </div>
                     <div>
                       <span>본문 미리보기</span>
-                      <p>
-                        {form.passage.trim().slice(0, 180)}
-                        {form.passage.trim().length > 180 ? "…" : ""}
-                      </p>
+                      <textarea
+                        className="assign-passage-editor assign-passage-editor--confirm"
+                        value={form.passage}
+                        onChange={(event) =>
+                          updateAssignmentForm({ passage: event.target.value }, { resetRanges: true })
+                        }
+                        rows={8}
+                      />
                     </div>
                   </div>
                   <div className="button-row">
@@ -2292,7 +2322,13 @@ export default function Home() {
                     <span>
                       {template.bookName} / Level {template.level}
                     </span>
-                    <small>불러와서 다른 반이나 날짜로 다시 배정</small>
+                    <small>
+                      {template.passage.trim()
+                        ? `${template.passage.trim().slice(0, 90)}${
+                            template.passage.trim().length > 90 ? "…" : ""
+                          }`
+                        : "본문 없음 · 불러와서 직접 입력"}
+                    </small>
                   </button>
                 ))
               ) : (
