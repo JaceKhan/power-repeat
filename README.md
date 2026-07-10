@@ -20,6 +20,7 @@
   - 저장된 템플릿을 불러와 다른 반이나 다른 날짜에 재배정
   - 반별 리딩 본문 과제 생성
   - 제출률과 과제별 제출 현황 확인
+  - 잘못 배정했거나 불필요한 과제 삭제
   - 학생 녹음 재생
   - 점수/피드백 저장
   - 재제출 요청
@@ -107,5 +108,6 @@ npm audit --audit-level=moderate
 - 과제 생성: `POST /api/assignments`
 - 녹음 제출: `POST /api/submissions`
 - 제출 검토: `PATCH /api/submissions/[submissionId]`
+- 과제 삭제: `DELETE /api/assignments/[assignmentId]`
 
 `.data`는 개발/시연용 로컬 저장소이며 Git에는 포함하지 않습니다. 정식 운영에서는 Supabase 환경변수를 설정해 Supabase DB/Storage를 사용합니다.
