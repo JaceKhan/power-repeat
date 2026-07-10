@@ -4,12 +4,22 @@ import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useSta
 import type { SessionUser } from "@/lib/auth";
 import type {
   Assignment,
+  AssignmentMode,
+  AssignmentSession,
   ClassGroup,
   HomeworkState,
   PassageTemplate,
   Student,
   Submission
 } from "@/lib/homework-data";
+import {
+  ASSIGNMENT_MODE_LABEL,
+  buildSessionDrafts,
+  getSessionPassage,
+  getSessionPrepSegments,
+  type SessionDraft
+} from "@/lib/assignment-sessions";
+import { splitPassageIntoPrepSegments, type PrepSegment } from "@/lib/passage-segments";
 
 type RecordingState = "idle" | "recording" | "ready";
 type LoginDemoUser = Pick<SessionUser, "email" | "name" | "role"> & {
@@ -18,12 +28,24 @@ type LoginDemoUser = Pick<SessionUser, "email" | "name" | "role"> & {
 type AuthenticatedHomeworkState = HomeworkState & {
   currentUser: SessionUser;
 };
-type PrepSegment = {
-  id: string;
-  text: string;
-};
 type HomeworkStatusKey = "pending" | "submitted" | "reviewed" | "resubmit";
 type AssignStep = 1 | 2 | 3;
+type AssignmentForm = {
+  bookName: string;
+  level: number;
+  passageTitle: string;
+  className: string;
+  dueDate: string;
+  passage: string;
+  instructions: string;
+  mode: AssignmentMode;
+  sessionCount: number;
+  sessionDrafts: SessionDraft[];
+};
+type VisibleSession = {
+  assignment: Assignment;
+  session: AssignmentSession;
+};
 
 const getDefaultDueDate = () => {
   const date = new Date();
@@ -31,9 +53,15 @@ const getDefaultDueDate = () => {
   return date.toISOString().slice(0, 10);
 };
 
-const TARGET_PREP_SEGMENT_LENGTH = 150;
-const MAX_PREP_SEGMENTS = 15;
 const SPEECH_RATE = 0.88;
+const MIN_SESSION_COUNT = 2;
+const MAX_SESSION_COUNT = 5;
+const assignmentModeOptions: Array<{ value: AssignmentMode; label: string; helper: string }> = [
+  { value: "single", label: "통 배정", helper: "한 번에 전체 본문" },
+  { value: "split", label: "구간 분할", helper: "여러 날짜에 나눠 제출" },
+  { value: "repeat", label: "통 반복", helper: "전체 본문을 여러 번 반복" }
+];
+const calendarWeekdayLabels = ["월", "화", "수", "목", "금", "토", "일"];
 
 const homeworkStatusLabel: Record<HomeworkStatusKey, string> = {
   pending: "미제출",
@@ -93,6 +121,74 @@ const getWeekStart = (date: Date) => {
 
 const getMonthStart = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
 
+const toDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const clampSessionCount = (count: number) =>
+  Math.max(MIN_SESSION_COUNT, Math.min(MAX_SESSION_COUNT, Math.round(count) || MIN_SESSION_COUNT));
+
+const getSessionCountForMode = (mode: AssignmentMode, sessionCount: number) =>
+  mode === "single" ? 1 : clampSessionCount(sessionCount);
+
+const buildDraftsForForm = (
+  form: AssignmentForm,
+  options: { resetDates?: boolean; resetRanges?: boolean } = {}
+) =>
+  buildSessionDrafts({
+    mode: form.mode,
+    passage: form.passage,
+    startDate: form.dueDate,
+    sessionCount: getSessionCountForMode(form.mode, form.sessionCount),
+    sessionDates: options.resetDates ? undefined : form.sessionDrafts.map((draft) => draft.dueDate),
+    segmentRanges: options.resetRanges
+      ? undefined
+      : form.sessionDrafts.map((draft) => ({
+          segmentStart: draft.segmentStart,
+          segmentEnd: draft.segmentEnd
+        }))
+  });
+
+const getInitialAssignmentForm = (): AssignmentForm => {
+  const dueDate = getDefaultDueDate();
+  const baseForm: AssignmentForm = {
+    bookName: "Reading Explorer",
+    level: 2,
+    passageTitle: "",
+    className: "CHESS Reading A",
+    dueDate,
+    passage: "",
+    instructions: "본문 전체를 또렷하게 읽고, 제출 전 반드시 미리듣기로 확인하세요.",
+    mode: "single",
+    sessionCount: 3,
+    sessionDrafts: []
+  };
+
+  return {
+    ...baseForm,
+    sessionDrafts: buildDraftsForForm(baseForm, { resetDates: true, resetRanges: true })
+  };
+};
+
+const getSessionSummary = (assignment: Pick<Assignment, "mode" | "sessions">, session: AssignmentSession) => {
+  if (assignment.mode !== "split") {
+    return "전체 본문";
+  }
+
+  return `${session.segmentStart + 1}-${session.segmentEnd + 1}번 구간`;
+};
+
+const getDraftSummary = (mode: AssignmentMode, draft: SessionDraft) => {
+  if (mode !== "split") {
+    return "전체 본문";
+  }
+
+  return `${draft.segmentStart + 1}-${draft.segmentEnd + 1}번 구간`;
+};
+
 const blobToDataUrl = (blob: Blob) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -100,211 +196,6 @@ const blobToDataUrl = (blob: Blob) =>
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(blob);
   });
-
-const COMMON_ABBREVIATIONS = new Set([
-  "mr",
-  "mrs",
-  "ms",
-  "dr",
-  "prof",
-  "sr",
-  "jr",
-  "vs",
-  "etc",
-  "st",
-  "mt",
-  "ft",
-  "dept",
-  "est",
-  "approx"
-]);
-
-const splitPassageIntoSentences = (passage: string): string[] => {
-  const sentences: string[] = [];
-  let current = "";
-
-  for (let index = 0; index < passage.length; index += 1) {
-    const character = passage[index];
-    current += character;
-
-    if (character !== "." && character !== "!" && character !== "?") {
-      continue;
-    }
-
-    const trimmed = current.trim();
-    const initialMatch = trimmed.match(/\b[A-Za-z]\.$/);
-    if (initialMatch) {
-      continue;
-    }
-
-    const abbreviationMatch = trimmed.match(/\b([A-Za-z]+)\.$/);
-    if (
-      abbreviationMatch &&
-      COMMON_ABBREVIATIONS.has(abbreviationMatch[1].toLowerCase())
-    ) {
-      continue;
-    }
-
-    let nextIndex = index + 1;
-    while (nextIndex < passage.length && passage[nextIndex] === " ") {
-      nextIndex += 1;
-    }
-
-    const nextCharacter = passage[nextIndex];
-    const isBoundary =
-      nextIndex >= passage.length || /[A-Z"'“‘(]/.test(nextCharacter ?? "");
-
-    if (!isBoundary) {
-      continue;
-    }
-
-    sentences.push(trimmed);
-    current = "";
-    index = nextIndex - 1;
-  }
-
-  if (current.trim()) {
-    sentences.push(current.trim());
-  }
-
-  return sentences.length > 0 ? sentences : [passage];
-};
-
-const splitLongSentenceIntoUnits = (sentence: string, maxLength: number): string[] => {
-  if (sentence.length <= maxLength) {
-    return [sentence];
-  }
-
-  const clausePieces =
-    sentence
-      .split(/(?<=[,:;])\s+/)
-      .map((piece) => piece.trim())
-      .filter(Boolean) ?? [sentence];
-
-  const units: string[] = [];
-  let current = "";
-
-  const pushCurrent = () => {
-    if (current) {
-      units.push(current);
-      current = "";
-    }
-  };
-
-  clausePieces.forEach((piece) => {
-    if (piece.length > maxLength) {
-      pushCurrent();
-      const words = piece.split(" ").filter(Boolean);
-      let wordChunk = "";
-      words.forEach((word) => {
-        const next = wordChunk ? `${wordChunk} ${word}` : word;
-        if (wordChunk && next.length > maxLength) {
-          units.push(wordChunk);
-          wordChunk = word;
-        } else {
-          wordChunk = next;
-        }
-      });
-      if (wordChunk) {
-        units.push(wordChunk);
-      }
-      return;
-    }
-
-    const next = current ? `${current} ${piece}` : piece;
-    if (current && next.length > maxLength) {
-      pushCurrent();
-      current = piece;
-    } else {
-      current = next;
-    }
-  });
-
-  pushCurrent();
-  return units.length > 0 ? units : [sentence];
-};
-
-const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
-  const normalizedPassage = passage.replace(/\s+/g, " ").trim();
-  if (!normalizedPassage) {
-    return [];
-  }
-
-  const sentences = splitPassageIntoSentences(normalizedPassage);
-  const totalLength = normalizedPassage.length;
-  const segmentCount = Math.min(
-    MAX_PREP_SEGMENTS,
-    Math.max(1, Math.ceil(totalLength / TARGET_PREP_SEGMENT_LENGTH)),
-    Math.max(1, sentences.length)
-  );
-  const softMaxLength = Math.max(
-    TARGET_PREP_SEGMENT_LENGTH,
-    Math.ceil(totalLength / segmentCount) + 40
-  );
-
-  const units = sentences.flatMap((sentence) =>
-    splitLongSentenceIntoUnits(sentence, softMaxLength)
-  );
-
-  const segments: string[] = [];
-  let unitIndex = 0;
-
-  for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex += 1) {
-    const remainingSegments = segmentCount - segmentIndex;
-    const remainingUnits = units.slice(unitIndex);
-    if (remainingSegments === 1) {
-      segments.push(remainingUnits.join(" "));
-      break;
-    }
-
-    const targetLength = Math.round(remainingUnits.join(" ").length / remainingSegments);
-    const parts: string[] = [];
-    let segmentLength = 0;
-
-    while (unitIndex < units.length) {
-      const unitsAfterTake = units.length - unitIndex - 1;
-      const segmentsAfter = remainingSegments - 1;
-      if (parts.length > 0 && unitsAfterTake < segmentsAfter) {
-        break;
-      }
-
-      const unit = units[unitIndex];
-      const nextLength = segmentLength === 0 ? unit.length : segmentLength + 1 + unit.length;
-
-      if (parts.length > 0 && segmentLength >= targetLength && unitsAfterTake >= segmentsAfter) {
-        break;
-      }
-
-      if (parts.length > 0 && nextLength > targetLength && unitsAfterTake >= segmentsAfter) {
-        const overshoot = nextLength - targetLength;
-        const undershoot = targetLength - segmentLength;
-        if (overshoot >= undershoot) {
-          break;
-        }
-      }
-
-      parts.push(unit);
-      segmentLength = nextLength;
-      unitIndex += 1;
-
-      if (segmentLength >= targetLength && units.length - unitIndex >= segmentsAfter) {
-        break;
-      }
-    }
-
-    if (parts.length === 0 && unitIndex < units.length) {
-      parts.push(units[unitIndex]);
-      unitIndex += 1;
-    }
-
-    segments.push(parts.join(" "));
-  }
-
-  return segments.map((text, index) => ({
-    id: `segment-${index}`,
-    text
-  }));
-};
 
 export default function Home() {
   const [activeRole, setActiveRole] = useState<"teacher" | "student">("teacher");
@@ -322,6 +213,9 @@ export default function Home() {
   const [selectedAchievementClassName, setSelectedAchievementClassName] = useState("");
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
+  const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [calendarMonth, setCalendarMonth] = useState(() => getMonthStart(new Date()));
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState("");
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingSec, setRecordingSec] = useState(0);
   const [audioDataUrl, setAudioDataUrl] = useState("");
@@ -332,15 +226,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [assignStep, setAssignStep] = useState<AssignStep>(1);
-  const [form, setForm] = useState({
-    bookName: "Reading Explorer",
-    level: 2,
-    passageTitle: "",
-    className: "CHESS Reading A",
-    dueDate: getDefaultDueDate(),
-    passage: "",
-    instructions: "본문 전체를 또렷하게 읽고, 제출 전 반드시 미리듣기로 확인하세요."
-  });
+  const [form, setForm] = useState<AssignmentForm>(() => getInitialAssignmentForm());
   const [classForm, setClassForm] = useState({
     name: ""
   });
@@ -378,39 +264,141 @@ export default function Home() {
     [assignments, selectedStudent]
   );
 
-  const selectedAssignment = useMemo(
+  const visibleSessions = useMemo<VisibleSession[]>(
     () =>
-      visibleAssignments.find((assignment) => assignment.id === selectedAssignmentId) ??
-      visibleAssignments[0] ??
-      assignments[0],
-    [assignments, selectedAssignmentId, visibleAssignments]
+      visibleAssignments
+        .flatMap((assignment) =>
+          assignment.sessions.map((session) => ({
+            assignment,
+            session
+          }))
+        )
+        .sort(
+          (left, right) =>
+            left.session.dueDate.localeCompare(right.session.dueDate) ||
+            left.assignment.passageTitle.localeCompare(right.assignment.passageTitle) ||
+            left.session.index - right.session.index
+        ),
+    [visibleAssignments]
   );
+
+  const selectedSessionItem = useMemo(
+    () =>
+      visibleSessions.find((item) => item.session.id === selectedSessionId) ??
+      visibleSessions.find((item) => item.assignment.id === selectedAssignmentId) ??
+      visibleSessions[0],
+    [selectedAssignmentId, selectedSessionId, visibleSessions]
+  );
+
+  const selectedAssignment =
+    selectedSessionItem?.assignment ??
+    visibleAssignments.find((assignment) => assignment.id === selectedAssignmentId) ??
+    visibleAssignments[0] ??
+    assignments[0];
+  const selectedSession = selectedSessionItem?.session ?? selectedAssignment?.sessions[0];
 
   const currentSubmission = useMemo(
     () =>
       submissions.find(
         (submission) =>
-          submission.assignmentId === selectedAssignment?.id &&
+          submission.sessionId === selectedSession?.id &&
           submission.studentId === selectedStudent?.id
       ),
-    [selectedAssignment?.id, selectedStudent?.id, submissions]
+    [selectedSession?.id, selectedStudent?.id, submissions]
   );
 
   const prepSegments = useMemo(
-    () => splitPassageIntoPrepSegments(selectedAssignment?.passage ?? ""),
-    [selectedAssignment?.passage]
+    () =>
+      selectedAssignment && selectedSession
+        ? getSessionPrepSegments(selectedAssignment.passage, selectedSession)
+        : [],
+    [selectedAssignment, selectedSession]
+  );
+
+  const selectedSessionPassage = useMemo(
+    () =>
+      selectedAssignment && selectedSession
+        ? getSessionPassage(selectedAssignment.passage, selectedSession)
+        : "",
+    [selectedAssignment, selectedSession]
   );
 
   const completedSegmentIds = useMemo(() => {
-    if (!selectedAssignment) {
+    if (!selectedSession) {
       return [];
     }
 
-    return completedPrepSegments[selectedAssignment.id] ?? [];
-  }, [completedPrepSegments, selectedAssignment]);
+    return completedPrepSegments[selectedSession.id] ?? [];
+  }, [completedPrepSegments, selectedSession]);
 
   const prepCompleted =
     prepSegments.length > 0 && completedSegmentIds.length >= prepSegments.length;
+
+  const formPrepSegments = useMemo<PrepSegment[]>(
+    () => splitPassageIntoPrepSegments(form.passage),
+    [form.passage]
+  );
+
+  const sessionsByDate = useMemo(() => {
+    const byDate = new Map<string, VisibleSession[]>();
+    visibleSessions.forEach((item) => {
+      const items = byDate.get(item.session.dueDate) ?? [];
+      items.push(item);
+      byDate.set(item.session.dueDate, items);
+    });
+    return byDate;
+  }, [visibleSessions]);
+
+  const calendarDays = useMemo(() => {
+    const monthStartDate = getMonthStart(calendarMonth);
+    const gridStart = getWeekStart(monthStartDate);
+
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(gridStart);
+      date.setDate(gridStart.getDate() + index);
+      const dateString = toDateInputValue(date);
+      return {
+        date,
+        dateString,
+        isCurrentMonth: date.getMonth() === monthStartDate.getMonth(),
+        sessionCount: sessionsByDate.get(dateString)?.length ?? 0
+      };
+    });
+  }, [calendarMonth, sessionsByDate]);
+
+  const calendarTitle = useMemo(
+    () => new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long" }).format(calendarMonth),
+    [calendarMonth]
+  );
+  const todayDateString = useMemo(() => toDateInputValue(new Date()), []);
+
+  const homeworkListSessions = useMemo(
+    () =>
+      selectedCalendarDate
+        ? visibleSessions.filter((item) => item.session.dueDate === selectedCalendarDate)
+        : visibleSessions,
+    [selectedCalendarDate, visibleSessions]
+  );
+
+  const homeworkSummary = useMemo(() => {
+    let remaining = 0;
+    let cleared = 0;
+
+    visibleSessions.forEach((item) => {
+      const submission = submissions.find(
+        (submissionItem) =>
+          submissionItem.sessionId === item.session.id && submissionItem.studentId === selectedStudent?.id
+      );
+      const status = getHomeworkStatus(submission);
+      if (status === "submitted" || status === "reviewed") {
+        cleared += 1;
+      } else {
+        remaining += 1;
+      }
+    });
+
+    return { remaining, cleared };
+  }, [selectedStudent?.id, submissions, visibleSessions]);
 
   const templateBookNames = useMemo(
     () => Array.from(new Set(templates.map((template) => template.bookName))).sort(),
@@ -435,7 +423,9 @@ export default function Home() {
   const submittedCount = submissions.filter((submission) => submission.status !== "resubmit").length;
   const assignedSubmissionSlots = assignments.reduce(
     (count, assignment) =>
-      count + students.filter((student) => student.className === assignment.className).length,
+      count +
+      students.filter((student) => student.className === assignment.className).length *
+        assignment.sessions.length,
     0
   );
   const completionRate =
@@ -445,14 +435,21 @@ export default function Home() {
     (student: Student, periodStart?: Date) => {
       const now = new Date();
       const classAssignments = assignments.filter((assignment) => assignment.className === student.className);
-      const relevantAssignments = periodStart
-        ? classAssignments.filter((assignment) => new Date(`${assignment.dueDate}T23:59:59`) >= periodStart)
-        : classAssignments;
+      const relevantSessions = classAssignments
+        .flatMap((assignment) =>
+          assignment.sessions.map((session) => ({
+            assignment,
+            session
+          }))
+        )
+        .filter(
+          ({ session }) => !periodStart || new Date(`${session.dueDate}T23:59:59`) >= periodStart
+        );
       const stats = {
         student,
         score: 0,
         submitted: 0,
-        total: relevantAssignments.length,
+        total: relevantSessions.length,
         completionRate: 0,
         aplus: 0,
         a: 0,
@@ -460,13 +457,13 @@ export default function Home() {
         f: 0
       };
 
-      relevantAssignments.forEach((assignment) => {
+      relevantSessions.forEach(({ session }) => {
         const submission = submissions.find(
-          (item) => item.assignmentId === assignment.id && item.studentId === student.id
+          (item) => item.sessionId === session.id && item.studentId === student.id
         );
         const submittedInPeriod =
           !periodStart || (submission && new Date(submission.submittedAt) >= periodStart);
-        const duePassed = new Date(`${assignment.dueDate}T23:59:59`) <= now;
+        const duePassed = new Date(`${session.dueDate}T23:59:59`) <= now;
 
         if (submission && submittedInPeriod) {
           stats.submitted += 1;
@@ -575,7 +572,10 @@ export default function Home() {
           : (state.classes[0]?.name ?? "")
       );
       setSelectedStudentId((current) =>
-        current && state.students.some((student) => student.id === current)
+        state.currentUser.studentId &&
+        state.students.some((student) => student.id === state.currentUser.studentId)
+          ? state.currentUser.studentId
+          : current && state.students.some((student) => student.id === current)
           ? current
           : (state.students[0]?.id ?? "")
       );
@@ -584,6 +584,12 @@ export default function Home() {
           ? current
           : (state.assignments[0]?.id ?? "")
       );
+      setSelectedSessionId((current) => {
+        const allSessions = state.assignments.flatMap((assignment) => assignment.sessions);
+        return current && allSessions.some((session) => session.id === current)
+          ? current
+          : (allSessions[0]?.id ?? "");
+      });
     } catch {
       setNotice("서버 학습 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
@@ -601,10 +607,25 @@ export default function Home() {
   }, [loadState]);
 
   useEffect(() => {
-    if (visibleAssignments.length && !visibleAssignments.some((item) => item.id === selectedAssignmentId)) {
-      setSelectedAssignmentId(visibleAssignments[0].id);
+    if (!visibleSessions.length) {
+      if (selectedSessionId) {
+        setSelectedSessionId("");
+      }
+      return;
     }
-  }, [selectedAssignmentId, visibleAssignments]);
+
+    const sessionStillVisible = visibleSessions.some((item) => item.session.id === selectedSessionId);
+    const nextItem = sessionStillVisible
+      ? visibleSessions.find((item) => item.session.id === selectedSessionId)
+      : visibleSessions[0];
+
+    if (nextItem && nextItem.session.id !== selectedSessionId) {
+      setSelectedSessionId(nextItem.session.id);
+    }
+    if (nextItem && nextItem.assignment.id !== selectedAssignmentId) {
+      setSelectedAssignmentId(nextItem.assignment.id);
+    }
+  }, [selectedAssignmentId, selectedSessionId, visibleSessions]);
 
   useEffect(
     () => () => {
@@ -676,7 +697,7 @@ export default function Home() {
   };
 
   const playNativePronunciation = (text?: string, segmentId?: string) => {
-    if (!selectedAssignment) {
+    if (!selectedAssignment || !selectedSession) {
       return;
     }
 
@@ -695,7 +716,7 @@ export default function Home() {
     speechTokenRef.current = speechToken;
     window.speechSynthesis.cancel();
 
-    const speechText = text ?? selectedAssignment.passage;
+    const speechText = text ?? selectedSessionPassage;
     const utterance = new SpeechSynthesisUtterance(speechText);
     const voices = window.speechSynthesis.getVoices();
     const preferredVoice =
@@ -719,14 +740,14 @@ export default function Home() {
 
       if (segmentId) {
         setCompletedPrepSegments((current) => {
-          const currentSegments = current[selectedAssignment.id] ?? [];
+          const currentSegments = current[selectedSession.id] ?? [];
           if (currentSegments.includes(segmentId)) {
             return current;
           }
 
           return {
             ...current,
-            [selectedAssignment.id]: [...currentSegments, segmentId]
+            [selectedSession.id]: [...currentSegments, segmentId]
           };
         });
       }
@@ -819,13 +840,14 @@ export default function Home() {
     setStudents([]);
     setSelectedStudentId("");
     setSelectedAssignmentId("");
+    setSelectedSessionId("");
     resetRecording();
     await loadState();
     setNotice("로그아웃되었습니다.");
   };
 
   const submitRecording = async () => {
-    if (!selectedAssignment || !selectedStudent || !audioBlob) {
+    if (!selectedAssignment || !selectedSession || !selectedStudent || !audioBlob) {
       setNotice("제출할 녹음이 없습니다. 먼저 녹음하거나 파일을 선택해 주세요.");
       return;
     }
@@ -834,11 +856,12 @@ export default function Home() {
     try {
       const formData = new FormData();
       formData.append("assignmentId", selectedAssignment.id);
+      formData.append("sessionId", selectedSession.id);
       formData.append("durationSec", String(Math.max(recordingSec, 1)));
       formData.append("prepCompleted", String(prepCompleted));
       formData.append("completedPrepSegments", String(completedSegmentIds.length));
       formData.append("totalPrepSegments", String(prepSegments.length));
-      formData.append("audio", audioBlob, `reading-${selectedAssignment.id}.webm`);
+      formData.append("audio", audioBlob, `reading-${selectedSession.id}.webm`);
 
       const response = await fetch("/api/submissions", {
         method: "POST",
@@ -853,7 +876,7 @@ export default function Home() {
       setSubmissions((current) => [
         submission,
         ...current.filter(
-          (item) => !(item.assignmentId === selectedAssignment.id && item.studentId === selectedStudent.id)
+          (item) => !(item.sessionId === selectedSession.id && item.studentId === selectedStudent.id)
         )
       ]);
       resetRecording();
@@ -878,6 +901,81 @@ export default function Home() {
     setNotice("녹음 파일을 불러왔습니다. 미리듣기 후 제출하세요.");
   };
 
+  const updateAssignmentForm = (
+    changes: Partial<AssignmentForm>,
+    options: { resetDates?: boolean; resetRanges?: boolean } = {}
+  ) => {
+    setForm((current) => {
+      const nextForm: AssignmentForm = {
+        ...current,
+        ...changes,
+        sessionCount:
+          changes.sessionCount === undefined
+            ? current.sessionCount
+            : clampSessionCount(changes.sessionCount)
+      };
+
+      return {
+        ...nextForm,
+        sessionDrafts: buildDraftsForForm(nextForm, options)
+      };
+    });
+  };
+
+  const updateSessionDraft = (index: number, changes: Partial<SessionDraft>) => {
+    setForm((current) => {
+      const lastSegmentIndex = Math.max(formPrepSegments.length - 1, 0);
+      const nextDrafts = current.sessionDrafts.map((draft, draftIndex) => {
+        if (draftIndex !== index) {
+          return draft;
+        }
+
+        const draftWithChanges = {
+          ...draft,
+          ...changes
+        };
+        const segmentStart = Math.max(
+          0,
+          Math.min(Math.round(draftWithChanges.segmentStart), lastSegmentIndex)
+        );
+        const segmentEnd = Math.max(
+          segmentStart,
+          Math.min(Math.round(draftWithChanges.segmentEnd), lastSegmentIndex)
+        );
+
+        return {
+          ...draftWithChanges,
+          segmentStart,
+          segmentEnd
+        };
+      });
+
+      return {
+        ...current,
+        dueDate: current.mode === "single" ? (nextDrafts[0]?.dueDate ?? current.dueDate) : current.dueDate,
+        sessionDrafts: nextDrafts
+      };
+    });
+  };
+
+  const selectHomeworkSession = (item: VisibleSession) => {
+    setSelectedSessionId(item.session.id);
+    setSelectedAssignmentId(item.assignment.id);
+    resetRecording();
+  };
+
+  const selectCalendarDate = (dateString: string) => {
+    setSelectedCalendarDate((current) => (current === dateString ? "" : dateString));
+    const firstSessionForDay = sessionsByDate.get(dateString)?.[0];
+    if (firstSessionForDay) {
+      selectHomeworkSession(firstSessionForDay);
+    }
+  };
+
+  const moveCalendarMonth = (monthOffset: number) => {
+    setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + monthOffset, 1));
+  };
+
   const createAssignment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (assignStep !== 3) {
@@ -893,15 +991,27 @@ export default function Home() {
       setAssignStep(2);
       return;
     }
+    if (!form.sessionDrafts.length || form.sessionDrafts.some((session) => !session.dueDate)) {
+      setNotice("각 세션의 마감일을 확인해 주세요.");
+      setAssignStep(2);
+      return;
+    }
 
     setIsSaving(true);
     try {
+      const sessionDrafts = buildDraftsForForm(form);
+      const lastDueDate = sessionDrafts[sessionDrafts.length - 1]?.dueDate ?? form.dueDate;
       const response = await fetch("/api/assignments", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(form)
+        body: JSON.stringify({
+          ...form,
+          mode: form.mode,
+          dueDate: lastDueDate,
+          sessions: sessionDrafts
+        })
       });
 
       if (!response.ok) {
@@ -910,12 +1020,23 @@ export default function Home() {
 
       const nextAssignment = (await response.json()) as Assignment;
       setSelectedAssignmentId(nextAssignment.id);
-      setForm((current) => ({
-        ...current,
-        passageTitle: "",
-        passage: "",
-        dueDate: getDefaultDueDate()
-      }));
+      setSelectedSessionId(nextAssignment.sessions[0]?.id ?? "");
+      setForm((current) => {
+        const dueDate = getDefaultDueDate();
+        const nextForm: AssignmentForm = {
+          ...current,
+          passageTitle: "",
+          passage: "",
+          dueDate,
+          mode: "single",
+          sessionCount: 3,
+          sessionDrafts: []
+        };
+        return {
+          ...nextForm,
+          sessionDrafts: buildDraftsForForm(nextForm, { resetDates: true, resetRanges: true })
+        };
+      });
       setAssignStep(1);
       await loadState();
       setNotice("새 리딩 녹음 과제가 배정되고 템플릿으로 저장되었습니다.");
@@ -932,7 +1053,12 @@ export default function Home() {
       setAssignStep(1);
       return;
     }
-    if (step > 2 && (!form.className.trim() || !form.dueDate)) {
+    if (
+      step > 2 &&
+      (!form.className.trim() ||
+        !form.sessionDrafts.length ||
+        form.sessionDrafts.some((session) => !session.dueDate))
+    ) {
       setNotice("2단계에서 반과 마감일을 확인해 주세요.");
       setAssignStep(2);
       return;
@@ -941,14 +1067,21 @@ export default function Home() {
   };
 
   const loadTemplateIntoForm = (template: PassageTemplate) => {
-    setForm((current) => ({
-      ...current,
-      bookName: template.bookName,
-      level: template.level,
-      passageTitle: template.passageTitle,
-      passage: template.passage,
-      instructions: template.instructions
-    }));
+    setForm((current) => {
+      const nextForm: AssignmentForm = {
+        ...current,
+        bookName: template.bookName,
+        level: template.level,
+        passageTitle: template.passageTitle,
+        passage: template.passage,
+        instructions: template.instructions
+      };
+
+      return {
+        ...nextForm,
+        sessionDrafts: buildDraftsForForm(nextForm, { resetRanges: true })
+      };
+    });
     setAssignStep(2);
     setTeacherCategory("content");
     setNotice("템플릿을 불러왔습니다. 반과 마감일을 확인한 뒤 배정하세요.");
@@ -977,6 +1110,9 @@ export default function Home() {
 
       if (selectedAssignmentId === assignment.id) {
         setSelectedAssignmentId("");
+      }
+      if (assignment.sessions.some((session) => session.id === selectedSessionId)) {
+        setSelectedSessionId("");
       }
       await loadState();
       setNotice("과제가 삭제되었습니다. 템플릿은 보관함에 남아 있습니다.");
@@ -1344,7 +1480,9 @@ export default function Home() {
                     학생이 읽을 본문
                     <textarea
                       value={form.passage}
-                      onChange={(event) => setForm((current) => ({ ...current, passage: event.target.value }))}
+                      onChange={(event) =>
+                        updateAssignmentForm({ passage: event.target.value }, { resetRanges: true })
+                      }
                       placeholder="학생들이 녹음해야 할 영어 본문을 입력하세요."
                       rows={8}
                     />
@@ -1369,12 +1507,14 @@ export default function Home() {
 
               {assignStep === 2 ? (
                 <>
-                  <p className="assign-step-copy">어느 반에, 언제까지 낼지 정합니다.</p>
+                  <p className="assign-step-copy">어느 반에, 어떤 방식으로 언제까지 낼지 정합니다.</p>
                   <div className="assign-summary">
                     <strong>
                       {form.bookName} / Level {form.level} / {form.passageTitle || "본문제목 없음"}
                     </strong>
-                    <span>본문 {form.passage.trim().length}자</span>
+                    <span>
+                      본문 {form.passage.trim().length}자 · 준비 구간 {formPrepSegments.length}개
+                    </span>
                   </div>
                   <div className="two-columns">
                     <label>
@@ -1393,16 +1533,128 @@ export default function Home() {
                       </select>
                     </label>
                     <label>
-                      마감일
+                      {form.mode === "single" ? "마감일" : "첫 마감 기준일"}
                       <input
                         type="date"
                         value={form.dueDate}
                         onChange={(event) =>
-                          setForm((current) => ({ ...current, dueDate: event.target.value }))
+                          updateAssignmentForm({ dueDate: event.target.value }, { resetDates: true })
                         }
                       />
                     </label>
                   </div>
+                  <label>
+                    배정 방식
+                    <div className="mode-picker">
+                      {assignmentModeOptions.map((option) => (
+                        <button
+                          className={form.mode === option.value ? "active" : ""}
+                          key={option.value}
+                          type="button"
+                          onClick={() =>
+                            updateAssignmentForm(
+                              { mode: option.value },
+                              { resetRanges: true }
+                            )
+                          }
+                        >
+                          <strong>{option.label}</strong>
+                          <span>{option.helper}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </label>
+                  {form.mode !== "single" ? (
+                    <>
+                      <div className="two-columns">
+                        <label>
+                          세션 수
+                          <select
+                            value={form.sessionCount}
+                            onChange={(event) =>
+                              updateAssignmentForm(
+                                { sessionCount: Number(event.target.value) },
+                                { resetRanges: true }
+                              )
+                            }
+                          >
+                            {[2, 3, 4, 5].map((count) => (
+                              <option key={count} value={count}>
+                                {count}회
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="assign-summary">
+                          <strong>{ASSIGNMENT_MODE_LABEL[form.mode]}</strong>
+                          <span>
+                            {form.mode === "split"
+                              ? "기본은 균등 분할, 아래에서 미세 조정"
+                              : "각 세션은 전체 본문을 다시 제출합니다."}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="session-editor">
+                        {form.sessionDrafts.map((draft, index) => (
+                          <div className="session-editor-row" key={`${form.mode}-${index}`}>
+                            <strong>{index + 1}회차</strong>
+                            <label>
+                              마감일
+                              <input
+                                type="date"
+                                value={draft.dueDate}
+                                onChange={(event) =>
+                                  updateSessionDraft(index, { dueDate: event.target.value })
+                                }
+                              />
+                            </label>
+                            {form.mode === "split" ? (
+                              <>
+                                <label>
+                                  시작 구간
+                                  <input
+                                    max={Math.max(formPrepSegments.length, 1)}
+                                    min={1}
+                                    type="number"
+                                    value={draft.segmentStart + 1}
+                                    onChange={(event) =>
+                                      updateSessionDraft(index, {
+                                        segmentStart: Number(event.target.value) - 1
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label>
+                                  끝 구간
+                                  <input
+                                    max={Math.max(formPrepSegments.length, 1)}
+                                    min={1}
+                                    type="number"
+                                    value={draft.segmentEnd + 1}
+                                    onChange={(event) =>
+                                      updateSessionDraft(index, {
+                                        segmentEnd: Number(event.target.value) - 1
+                                      })
+                                    }
+                                  />
+                                </label>
+                              </>
+                            ) : (
+                              <span>전체 본문</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="session-editor">
+                      <div className="session-editor-row">
+                        <strong>1회차</strong>
+                        <span>마감 {form.sessionDrafts[0]?.dueDate ?? form.dueDate}</span>
+                        <span>전체 본문</span>
+                      </div>
+                    </div>
+                  )}
                   <div className="button-row">
                     <button type="button" onClick={() => goToAssignStep(1)}>
                       이전
@@ -1430,7 +1682,23 @@ export default function Home() {
                     </div>
                     <div>
                       <span>마감일</span>
-                      <strong>{form.dueDate}</strong>
+                      <strong>{form.sessionDrafts[form.sessionDrafts.length - 1]?.dueDate ?? form.dueDate}</strong>
+                    </div>
+                    <div>
+                      <span>배정 방식</span>
+                      <strong>{ASSIGNMENT_MODE_LABEL[form.mode]}</strong>
+                    </div>
+                    <div>
+                      <span>세션</span>
+                      <div className="session-editor">
+                        {form.sessionDrafts.map((draft, index) => (
+                          <div className="session-editor-row" key={`confirm-${index}`}>
+                            <strong>{index + 1}회차</strong>
+                            <span>{draft.dueDate}</span>
+                            <span>{getDraftSummary(form.mode, draft)}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                     <div>
                       <span>본문 미리보기</span>
@@ -1780,6 +2048,7 @@ export default function Home() {
                 const submittedCount = relatedSubmissions.filter(
                   (submission) => submission.status !== "resubmit"
                 ).length;
+                const totalSlots = assignedStudents.length * assignment.sessions.length;
                 return (
                   <div className="assignment-card" key={assignment.id}>
                     <div>
@@ -1787,11 +2056,14 @@ export default function Home() {
                       <p>
                         {assignment.bookName} / Level {assignment.level} · {assignment.className}
                       </p>
+                      <p>
+                        {ASSIGNMENT_MODE_LABEL[assignment.mode]} · {assignment.sessions.length}회차
+                      </p>
                     </div>
                     <div className="metrics">
-                      <span>마감 {assignment.dueDate}</span>
+                      <span>최종 마감 {assignment.dueDate}</span>
                       <strong>
-                        {submittedCount}/{assignedStudents.length}
+                        {submittedCount}/{totalSlots}
                       </strong>
                     </div>
                     <button
@@ -1804,14 +2076,52 @@ export default function Home() {
                     </button>
                     <div className="student-grade-list">
                       {assignedStudents.map((student) => {
-                        const submission = relatedSubmissions.find((item) => item.studentId === student.id);
-                        const status = getHomeworkStatus(submission);
-                        const grade = submission?.grade ?? "F";
+                        const sessionStatuses = assignment.sessions.map((session) => {
+                          const submission = relatedSubmissions.find(
+                            (item) => item.studentId === student.id && item.sessionId === session.id
+                          );
+                          return {
+                            session,
+                            submission,
+                            status: getHomeworkStatus(submission)
+                          };
+                        });
+                        const clearedCount = sessionStatuses.filter(
+                          (item) => item.status === "submitted" || item.status === "reviewed"
+                        ).length;
+                        const latestSubmission = sessionStatuses
+                          .map((item) => item.submission)
+                          .filter((submission): submission is Submission => Boolean(submission))
+                          .sort((left, right) => right.submittedAt.localeCompare(left.submittedAt))[0];
+                        const aggregateStatus =
+                          clearedCount === assignment.sessions.length
+                            ? "reviewed"
+                            : sessionStatuses.some((item) => item.status === "resubmit")
+                              ? "resubmit"
+                              : sessionStatuses.some((item) => item.status === "submitted")
+                                ? "submitted"
+                                : "pending";
+                        const grade = latestSubmission?.grade ?? "F";
 
                         return (
                           <span className="student-grade-row" key={student.id}>
                             <span className="student-grade-name">{student.name}</span>
-                            <span className={`status ${status}`}>{homeworkStatusLabel[status]}</span>
+                            {assignment.sessions.length > 1 ? (
+                              <span className="session-status-list">
+                                <strong>
+                                  {clearedCount}/{assignment.sessions.length} 클리어
+                                </strong>
+                                {sessionStatuses.map((item) => (
+                                  <small className={`status ${item.status}`} key={item.session.id}>
+                                    {item.session.index}회 {homeworkStatusLabel[item.status]}
+                                  </small>
+                                ))}
+                              </span>
+                            ) : (
+                              <span className={`status ${aggregateStatus}`}>
+                                {homeworkStatusLabel[aggregateStatus]}
+                              </span>
+                            )}
                             <strong className={getGradeClassName(grade)}>{grade}</strong>
                           </span>
                         );
@@ -1835,6 +2145,7 @@ export default function Home() {
               {submissions.length ? (
                 submissions.map((submission) => {
                   const assignment = assignments.find((item) => item.id === submission.assignmentId);
+                  const session = assignment?.sessions.find((item) => item.id === submission.sessionId);
                   return (
                     <div className="review-card" key={submission.id}>
                       <div className="review-meta">
@@ -1842,7 +2153,9 @@ export default function Home() {
                           <h3>{submission.studentName}</h3>
                           <p>
                             {assignment
-                              ? `${assignment.bookName} / Level ${assignment.level} / ${assignment.passageTitle}`
+                              ? `${assignment.bookName} / Level ${assignment.level} / ${assignment.passageTitle}${
+                                  session ? ` / ${session.index}회차` : ""
+                                }`
                               : "삭제된 과제"}
                           </p>
                         </div>
@@ -1933,6 +2246,8 @@ export default function Home() {
                 value={selectedStudentId}
                 onChange={(event) => {
                   setSelectedStudentId(event.target.value);
+                  setSelectedSessionId("");
+                  setSelectedCalendarDate("");
                   resetRecording();
                 }}
               >
@@ -1943,58 +2258,119 @@ export default function Home() {
                 ))}
               </select>
             </label>
+            <div className="homework-calendar">
+              <div className="calendar-header">
+                <button type="button" onClick={() => moveCalendarMonth(-1)}>
+                  이전
+                </button>
+                <strong>{calendarTitle}</strong>
+                <button type="button" onClick={() => moveCalendarMonth(1)}>
+                  다음
+                </button>
+              </div>
+              <div className="calendar-grid">
+                {calendarWeekdayLabels.map((label) => (
+                  <span className="calendar-weekday" key={label}>
+                    {label}
+                  </span>
+                ))}
+                {calendarDays.map((day) => (
+                  <button
+                    className={[
+                      "calendar-day",
+                      day.sessionCount ? "has-homework" : "",
+                      selectedCalendarDate === day.dateString ? "selected" : "",
+                      todayDateString === day.dateString ? "today" : "",
+                      day.isCurrentMonth ? "" : "muted"
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    key={day.dateString}
+                    type="button"
+                    onClick={() => selectCalendarDate(day.dateString)}
+                  >
+                    <span>{day.date.getDate()}</span>
+                    {day.sessionCount ? <small>{day.sessionCount}</small> : null}
+                  </button>
+                ))}
+              </div>
+              <div className="homework-summary">
+                <span>남은 숙제 {homeworkSummary.remaining}</span>
+                <span>클리어 {homeworkSummary.cleared}</span>
+              </div>
+              {selectedCalendarDate ? (
+                <button className="calendar-clear" type="button" onClick={() => setSelectedCalendarDate("")}>
+                  전체 숙제 보기
+                </button>
+              ) : null}
+            </div>
             <div className="assignment-list compact">
-              {visibleAssignments.map((assignment) => {
+              {homeworkListSessions.map((item) => {
+                const { assignment, session } = item;
                 const submission = submissions.find(
-                  (item) => item.assignmentId === assignment.id && item.studentId === selectedStudent?.id
+                  (submissionItem) =>
+                    submissionItem.sessionId === session.id && submissionItem.studentId === selectedStudent?.id
                 );
                 const status = getHomeworkStatus(submission);
+                const isMultiSession = assignment.sessions.length > 1;
                 return (
                   <button
-                    className={assignment.id === selectedAssignment?.id ? "assignment-card selected" : "assignment-card"}
-                    key={assignment.id}
+                    className={session.id === selectedSession?.id ? "assignment-card selected" : "assignment-card"}
+                    key={session.id}
                     type="button"
-                    onClick={() => {
-                      setSelectedAssignmentId(assignment.id);
-                      resetRecording();
-                    }}
+                    onClick={() => selectHomeworkSession(item)}
                   >
                     <span className="assignment-card-main">
-                      <span>{assignment.passageTitle}</span>
+                      <span>
+                        {assignment.passageTitle}
+                        {isMultiSession ? ` ${session.index}/${assignment.sessions.length}` : ""}
+                      </span>
                       <small>
                         {assignment.bookName} / Level {assignment.level}
                       </small>
-                      <small>마감 {assignment.dueDate}</small>
+                      <small>
+                        마감 {session.dueDate} · {getSessionSummary(assignment, session)}
+                      </small>
+                      <small>{ASSIGNMENT_MODE_LABEL[assignment.mode]}</small>
                     </span>
                     <span className={`status ${status}`}>{homeworkStatusLabel[status]}</span>
                   </button>
                 );
               })}
+              {!homeworkListSessions.length ? (
+                <p className="empty">
+                  {selectedCalendarDate ? "선택한 날짜에는 숙제가 없습니다." : "현재 배정된 숙제가 없습니다."}
+                </p>
+              ) : null}
             </div>
           </article>
 
           <article className="panel wide">
-            {selectedAssignment ? (
+            {selectedAssignment && selectedSession ? (
               <>
                 <div className="panel-heading">
                   <div>
                     <p className="eyebrow">{selectedAssignment.className}</p>
                     <h2>{selectedAssignment.passageTitle}</h2>
                     <p>
-                      {selectedAssignment.bookName} / Level {selectedAssignment.level}
+                      {selectedAssignment.bookName} / Level {selectedAssignment.level} ·{" "}
+                      {selectedAssignment.sessions.length > 1
+                        ? `${selectedSession.index}/${selectedAssignment.sessions.length}회차`
+                        : "1회차"}{" "}
+                      · {getSessionSummary(selectedAssignment, selectedSession)}
                     </p>
                   </div>
                   <div className="heading-status">
                     <span className={`status ${getHomeworkStatus(currentSubmission)}`}>
                       {homeworkStatusLabel[getHomeworkStatus(currentSubmission)]}
                     </span>
-                    <span className="badge">마감 {selectedAssignment.dueDate}</span>
+                    <span className="badge">마감 {selectedSession.dueDate}</span>
                   </div>
                 </div>
                 <div className="student-workspace">
                   <div className="student-reading-column">
                     <div className="passage-box">
-                      <p>{selectedAssignment.passage}</p>
+                      <p>{selectedSessionPassage}</p>
                     </div>
                     <div className="listening-tools">
                       <div>

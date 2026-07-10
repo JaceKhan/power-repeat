@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import {
+  buildSessionDrafts,
+  ensureAssignmentSessions,
+  getSessionPassage,
+  materializeSessions,
+  type AssignmentMode,
+  type SessionDraft
+} from "@/lib/assignment-sessions";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import type {
   Assignment,
@@ -20,10 +28,13 @@ type CreateAssignmentInput = {
   instructions: string;
   dueDate: string;
   teacherName?: string;
+  mode?: AssignmentMode;
+  sessions?: SessionDraft[];
 };
 
 type CreateSubmissionInput = {
   assignmentId: string;
+  sessionId: string;
   studentId: string;
   durationSec: number;
   prepCompleted: boolean;
@@ -154,42 +165,57 @@ const mapTemplate = (row: DbRow): PassageTemplate => ({
   updatedAt: getString(row, "updated_at")
 });
 
-const mapAssignment = (row: DbRow, classById: Map<string, ClassGroup>, profileById: Map<string, DbRow>): Assignment => ({
-  id: getString(row, "id"),
-  title: getString(row, "title"),
-  bookName: getString(row, "book_name"),
-  level: getNumber(row, "level"),
-  passageTitle: getString(row, "passage_title"),
-  className: classById.get(getString(row, "class_id"))?.name ?? "",
-  passage: getString(row, "passage"),
-  instructions: getOptionalString(row, "instructions") ?? "",
-  dueDate: getString(row, "due_date"),
-  createdAt: getString(row, "created_at"),
-  teacherName: getOptionalString(profileById.get(getString(row, "teacher_id")) ?? {}, "display_name") ?? "Teacher",
-  templateId: getOptionalString(row, "template_id")
-});
+const mapAssignment = (row: DbRow, classById: Map<string, ClassGroup>, profileById: Map<string, DbRow>): Assignment => {
+  const base = {
+    id: getString(row, "id"),
+    title: getString(row, "title"),
+    bookName: getString(row, "book_name"),
+    level: getNumber(row, "level"),
+    passageTitle: getString(row, "passage_title"),
+    className: classById.get(getString(row, "class_id"))?.name ?? "",
+    passage: getString(row, "passage"),
+    instructions: getOptionalString(row, "instructions") ?? "",
+    dueDate: getString(row, "due_date"),
+    createdAt: getString(row, "created_at"),
+    teacherName:
+      getOptionalString(profileById.get(getString(row, "teacher_id")) ?? {}, "display_name") ?? "Teacher",
+    templateId: getOptionalString(row, "template_id"),
+    mode: (getOptionalString(row, "mode") as AssignmentMode | undefined) ?? undefined,
+    sessions: Array.isArray(row.sessions) ? (row.sessions as Assignment["sessions"]) : undefined
+  };
+
+  return ensureAssignmentSessions(base);
+};
 
 const mapSubmission = (
   row: DbRow,
-  studentById: Map<string, Student>
-): Submission => ({
-  id: getString(row, "id"),
-  assignmentId: getString(row, "assignment_id"),
-  studentId: getString(row, "student_id"),
-  studentName: studentById.get(getString(row, "student_id"))?.name ?? "Unknown Student",
-  grade: getString(row, "grade") as Submission["grade"],
-  prepCompleted: getBoolean(row, "prep_completed"),
-  completedPrepSegments: getNumber(row, "completed_prep_segments"),
-  totalPrepSegments: getNumber(row, "total_prep_segments"),
-  audioUrl: `/api/audio/${getString(row, "audio_path")}`,
-  audioFileName: getString(row, "audio_path"),
-  audioContentType: getOptionalString(row, "audio_content_type") ?? "audio/webm",
-  durationSec: getNumber(row, "duration_sec"),
-  submittedAt: getString(row, "submitted_at"),
-  status: getString(row, "status") as Submission["status"],
-  feedback: getOptionalString(row, "feedback"),
-  score: row.score === null || row.score === undefined ? undefined : getNumber(row, "score")
-});
+  studentById: Map<string, Student>,
+  assignmentById?: Map<string, Assignment>
+): Submission => {
+  const assignmentId = getString(row, "assignment_id");
+  const fallbackSessionId =
+    assignmentById?.get(assignmentId)?.sessions[0]?.id || `${assignmentId}-s1`;
+
+  return {
+    id: getString(row, "id"),
+    assignmentId,
+    sessionId: getOptionalString(row, "session_id") || fallbackSessionId,
+    studentId: getString(row, "student_id"),
+    studentName: studentById.get(getString(row, "student_id"))?.name ?? "Unknown Student",
+    grade: getString(row, "grade") as Submission["grade"],
+    prepCompleted: getBoolean(row, "prep_completed"),
+    completedPrepSegments: getNumber(row, "completed_prep_segments"),
+    totalPrepSegments: getNumber(row, "total_prep_segments"),
+    audioUrl: `/api/audio/${getString(row, "audio_path")}`,
+    audioFileName: getString(row, "audio_path"),
+    audioContentType: getOptionalString(row, "audio_content_type") ?? "audio/webm",
+    durationSec: getNumber(row, "duration_sec"),
+    submittedAt: getString(row, "submitted_at"),
+    status: getString(row, "status") as Submission["status"],
+    feedback: getOptionalString(row, "feedback"),
+    score: row.score === null || row.score === undefined ? undefined : getNumber(row, "score")
+  };
+};
 
 const generateLoginCode = async () => {
   const supabase = getSupabaseAdmin();
@@ -242,8 +268,9 @@ export const getSupabaseHomeworkState = async (): Promise<HomeworkState> => {
   const assignments = (assignmentsResult.data ?? []).map((assignment) =>
     mapAssignment(asRow(assignment), classById, profileById)
   );
+  const assignmentById = new Map(assignments.map((assignment) => [assignment.id, assignment]));
   const submissions = (submissionsResult.data ?? []).map((submission) =>
-    mapSubmission(asRow(submission), studentById)
+    mapSubmission(asRow(submission), studentById, assignmentById)
   );
 
   return {
@@ -263,6 +290,7 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
   const className = assertText(input.className, "className");
   const passage = assertText(input.passage, "passage");
   const dueDate = assertText(input.dueDate, "dueDate");
+  const mode: AssignmentMode = input.mode ?? "single";
   const title = input.title?.trim() || buildAssignmentTitle({ bookName, level, passageTitle });
   const instructions = input.instructions?.trim() ?? "";
 
@@ -297,6 +325,19 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
     throw templateError;
   }
 
+  const tempId = `a-${randomUUID()}`;
+  const sessionDrafts =
+    input.sessions?.length && input.sessions.every((session) => session.dueDate)
+      ? input.sessions
+      : buildSessionDrafts({
+          mode,
+          passage,
+          startDate: dueDate,
+          sessionCount: mode === "single" ? 1 : Math.max(input.sessions?.length ?? 3, 1)
+        });
+  const sessions = materializeSessions(sessionDrafts, tempId);
+  const lastDueDate = sessions[sessions.length - 1]?.dueDate || dueDate;
+
   const { data: assignmentRow, error: assignmentError } = await supabase
     .from("assignments")
     .insert({
@@ -308,7 +349,9 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
       passage_title: passageTitle,
       passage,
       instructions,
-      due_date: dueDate
+      due_date: lastDueDate,
+      mode,
+      sessions
     })
     .select()
     .single();
@@ -318,7 +361,26 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
   }
 
   const classData = asRow(classRow);
-  return mapAssignment(asRow(assignmentRow), new Map([[getString(classData, "id"), mapClass(classData)]]), new Map());
+  const mapped = mapAssignment(
+    asRow(assignmentRow),
+    new Map([[getString(classData, "id"), mapClass(classData)]]),
+    new Map()
+  );
+
+  // Keep session ids stable against the real assignment id.
+  if (mapped.id !== tempId) {
+    mapped.sessions = materializeSessions(
+      mapped.sessions.map((session) => ({
+        dueDate: session.dueDate,
+        segmentStart: session.segmentStart,
+        segmentEnd: session.segmentEnd
+      })),
+      mapped.id
+    );
+    await supabase.from("assignments").update({ sessions: mapped.sessions }).eq("id", mapped.id);
+  }
+
+  return mapped;
 };
 
 export const deleteSupabaseAssignment = async (assignmentId: string) => {
@@ -442,6 +504,7 @@ export const findSupabaseStudentByNameAndCode = async (name: string, loginCode: 
 export const createSupabaseSubmission = async (input: CreateSubmissionInput) => {
   const supabase = getSupabaseAdmin();
   const assignmentId = assertText(input.assignmentId, "assignmentId");
+  const sessionId = assertText(input.sessionId, "sessionId");
   const studentId = assertText(input.studentId, "studentId");
 
   if (!input.audio || input.audio.size === 0) {
@@ -461,10 +524,16 @@ export const createSupabaseSubmission = async (input: CreateSubmissionInput) => 
     throw new Error("student is not assigned to this class");
   }
 
+  const assignment = mapAssignment(asRow(assignmentRow), new Map(), new Map());
+  const session = assignment.sessions.find((item) => item.id === sessionId);
+  if (!session) {
+    throw new Error("session not found");
+  }
+
   const { data: previousSubmission, error: previousError } = await supabase
     .from("submissions")
     .select("*")
-    .eq("assignment_id", assignmentId)
+    .eq("session_id", sessionId)
     .eq("student_id", studentId)
     .maybeSingle();
 
@@ -494,16 +563,20 @@ export const createSupabaseSubmission = async (input: CreateSubmissionInput) => 
   const totalPrepSegments = Math.max(Math.round(input.totalPrepSegments), 0);
   const completedPrepSegments = Math.min(
     Math.max(Math.round(input.completedPrepSegments), 0),
-    totalPrepSegments
+    totalPrepSegments || Number.MAX_SAFE_INTEGER
   );
-  const prepCompleted = totalPrepSegments > 0 && completedPrepSegments >= totalPrepSegments;
+  const prepCompleted =
+    typeof input.prepCompleted === "boolean"
+      ? input.prepCompleted
+      : totalPrepSegments > 0 && completedPrepSegments >= totalPrepSegments;
   const grade = calculateSubmissionGrade({
-    passage: assignmentRow.passage,
+    passage: getSessionPassage(assignment.passage, session),
     durationSec,
     prepCompleted
   });
   const submissionPayload = {
     assignment_id: assignmentId,
+    session_id: sessionId,
     student_id: studentId,
     audio_path: audioPath,
     audio_content_type: input.audio.type || "audio/webm",
@@ -531,7 +604,7 @@ export const createSupabaseSubmission = async (input: CreateSubmissionInput) => 
   const classGroup = mapClass(asRow(studentData.classes));
   const student = mapStudent(studentData, new Map([[classGroup.id, classGroup]]));
 
-  return mapSubmission(asRow(data), new Map([[student.id, student]]));
+  return mapSubmission(asRow(data), new Map([[student.id, student]]), new Map([[assignment.id, assignment]]));
 };
 
 export const reviewSupabaseSubmission = async (submissionId: string, input: ReviewSubmissionInput) => {

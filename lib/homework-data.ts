@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import {
+  buildSessionDrafts,
+  ensureAssignmentSessions,
+  getSessionPassage,
+  materializeSessions,
+  type AssignmentMode,
+  type AssignmentSession,
+  type SessionDraft
+} from "@/lib/assignment-sessions";
 import { isSupabaseConfigured } from "@/lib/supabase-admin";
 import {
   createSupabaseAssignment,
@@ -15,6 +24,8 @@ import {
   reviewSupabaseSubmission
 } from "@/lib/supabase-homework";
 
+export type { AssignmentMode, AssignmentSession };
+
 export type Assignment = {
   id: string;
   title: string;
@@ -28,6 +39,8 @@ export type Assignment = {
   createdAt: string;
   teacherName: string;
   templateId?: string;
+  mode: AssignmentMode;
+  sessions: AssignmentSession[];
 };
 
 export type PassageTemplate = {
@@ -51,6 +64,7 @@ export type ClassGroup = {
 export type Submission = {
   id: string;
   assignmentId: string;
+  sessionId: string;
   studentId: string;
   studentName: string;
   grade: "A+" | "A" | "B";
@@ -104,10 +118,13 @@ type CreateAssignmentInput = {
   instructions: string;
   dueDate: string;
   teacherName?: string;
+  mode?: AssignmentMode;
+  sessions?: SessionDraft[];
 };
 
 type CreateSubmissionInput = {
   assignmentId: string;
+  sessionId: string;
   studentId: string;
   durationSec: number;
   prepCompleted: boolean;
@@ -186,7 +203,7 @@ const seedStudents: Student[] = [
 ];
 
 const seedAssignments: Assignment[] = [
-  {
+  ensureAssignmentSessions({
     id: "a-1",
     title: "Storybook Reading 1: The Tiny Seed",
     bookName: "Storybook Reading",
@@ -200,7 +217,7 @@ const seedAssignments: Assignment[] = [
     dueDate: "2026-06-24",
     createdAt: "2026-06-22T00:00:00.000Z",
     teacherName: "Jamie Teacher"
-  }
+  })
 ];
 
 const initialData: StoredHomeworkData = {
@@ -270,14 +287,15 @@ const normalizeAssignment = (assignment: Assignment): Assignment => {
   const bookName = assignment.bookName?.trim() || "Uncategorized Book";
   const level = Number.isFinite(assignment.level) ? assignment.level : 1;
   const passageTitle = assignment.passageTitle?.trim() || assignment.title;
-
-  return {
+  const withTitle = {
     ...assignment,
     bookName,
     level,
     passageTitle,
     title: assignment.title?.trim() || buildAssignmentTitle({ bookName, level, passageTitle })
   };
+
+  return ensureAssignmentSessions(withTitle);
 };
 
 const normalizeTemplate = (template: PassageTemplate): PassageTemplate => {
@@ -350,6 +368,7 @@ const generateLoginCode = (students: Student[]) => {
 
 const normalizeSubmission = (submission: Submission, assignments: Assignment[]): Submission => {
   const assignment = assignments.find((item) => item.id === submission.assignmentId);
+  const fallbackSessionId = assignment?.sessions[0]?.id || `${submission.assignmentId}-s1`;
   const totalPrepSegments = Number.isFinite(submission.totalPrepSegments)
     ? submission.totalPrepSegments
     : 0;
@@ -363,6 +382,7 @@ const normalizeSubmission = (submission: Submission, assignments: Assignment[]):
 
   return {
     ...submission,
+    sessionId: submission.sessionId || fallbackSessionId,
     totalPrepSegments,
     completedPrepSegments,
     prepCompleted,
@@ -475,6 +495,7 @@ export const createAssignment = async (input: CreateAssignmentInput) => {
   const className = assertText(input.className, "className");
   const passage = assertText(input.passage, "passage");
   const dueDate = assertText(input.dueDate, "dueDate");
+  const mode: AssignmentMode = input.mode ?? "single";
   const data = await readData();
   if (!data.classes.some((classGroup) => classGroup.name === className && classGroup.active)) {
     throw new Error("class not found");
@@ -505,19 +526,34 @@ export const createAssignment = async (input: CreateAssignmentInput) => {
         updatedAt: now
       };
 
+  const assignmentId = `a-${randomUUID()}`;
+  const sessionDrafts =
+    input.sessions?.length && input.sessions.every((session) => session.dueDate)
+      ? input.sessions
+      : buildSessionDrafts({
+          mode,
+          passage,
+          startDate: dueDate,
+          sessionCount: mode === "single" ? 1 : Math.max(input.sessions?.length ?? 3, 1)
+        });
+  const sessions = materializeSessions(sessionDrafts, assignmentId);
+  const lastDueDate = sessions[sessions.length - 1]?.dueDate || dueDate;
+
   const assignment: Assignment = {
-    id: `a-${randomUUID()}`,
+    id: assignmentId,
     title,
     bookName,
     level,
     passageTitle,
     className,
     passage,
-    dueDate,
+    dueDate: lastDueDate,
     instructions: input.instructions?.trim() ?? "",
     createdAt: now,
     teacherName: input.teacherName?.trim() || "Jamie Teacher",
-    templateId: template.id
+    templateId: template.id,
+    mode,
+    sessions
   };
 
   data.assignments = [assignment, ...data.assignments];
@@ -660,6 +696,7 @@ export const createSubmission = async (input: CreateSubmissionInput) => {
   }
 
   const assignmentId = assertText(input.assignmentId, "assignmentId");
+  const sessionId = assertText(input.sessionId, "sessionId");
   const studentId = assertText(input.studentId, "studentId");
 
   if (!input.audio || input.audio.size === 0) {
@@ -674,6 +711,11 @@ export const createSubmission = async (input: CreateSubmissionInput) => {
     throw new Error("assignment not found");
   }
 
+  const session = assignment.sessions.find((item) => item.id === sessionId);
+  if (!session) {
+    throw new Error("session not found");
+  }
+
   if (!student) {
     throw new Error("student not found");
   }
@@ -683,7 +725,7 @@ export const createSubmission = async (input: CreateSubmissionInput) => {
   }
 
   const previousSubmission = data.submissions.find(
-    (item) => item.assignmentId === assignmentId && item.studentId === studentId
+    (item) => item.sessionId === sessionId && item.studentId === studentId
   );
 
   if (previousSubmission?.audioFileName) {
@@ -697,23 +739,29 @@ export const createSubmission = async (input: CreateSubmissionInput) => {
   await fs.writeFile(audioPath, audioBuffer);
 
   const durationSec = Math.max(Math.round(input.durationSec), 1);
+  const sessionPassage = getSessionPassage(assignment.passage, session);
   const totalPrepSegments = Math.max(Math.round(input.totalPrepSegments), 0);
-  const completedPrepSegments = Math.min(
-    Math.max(Math.round(input.completedPrepSegments), 0),
-    totalPrepSegments
+  const completedPrepSegments = Math.max(
+    0,
+    Math.min(Math.round(input.completedPrepSegments), totalPrepSegments || Number.MAX_SAFE_INTEGER)
   );
-  const prepCompleted = totalPrepSegments > 0 && completedPrepSegments >= totalPrepSegments;
+  const prepCompleted =
+    typeof input.prepCompleted === "boolean"
+      ? input.prepCompleted
+      : totalPrepSegments > 0 && completedPrepSegments >= totalPrepSegments;
+  const grade = calculateSubmissionGrade({
+    passage: sessionPassage,
+    durationSec,
+    prepCompleted
+  });
 
   const submission: Submission = {
-    id: `sub-${randomUUID()}`,
+    id: previousSubmission?.id || `sub-${randomUUID()}`,
     assignmentId,
+    sessionId,
     studentId,
     studentName: student.name,
-    grade: calculateSubmissionGrade({
-      passage: assignment.passage,
-      durationSec,
-      prepCompleted
-    }),
+    grade,
     prepCompleted,
     completedPrepSegments,
     totalPrepSegments,
@@ -722,13 +770,15 @@ export const createSubmission = async (input: CreateSubmissionInput) => {
     audioContentType: input.audio.type || "audio/webm",
     durationSec,
     submittedAt: new Date().toISOString(),
-    status: "submitted"
+    status: "submitted",
+    feedback: previousSubmission?.status === "resubmit" ? undefined : previousSubmission?.feedback,
+    score: previousSubmission?.status === "resubmit" ? undefined : previousSubmission?.score
   };
 
   data.submissions = [
     submission,
     ...data.submissions.filter(
-      (item) => !(item.assignmentId === assignmentId && item.studentId === studentId)
+      (item) => !(item.sessionId === sessionId && item.studentId === studentId)
     )
   ];
   await writeData(data);
