@@ -321,20 +321,20 @@ audio {
   grid-column: 2;
 }
 
-.teacher-category-content .teacher-roster-panel,
-.teacher-category-roster .teacher-content-panel {
+.teacher-category-content .teacher-roster-panel:not(.teacher-shared-panel),
+.teacher-category-roster .teacher-content-panel:not(.teacher-shared-panel) {
   display: none;
 }
 
-.teacher-roster-achievements {
+.teacher-roster-status {
   order: 1;
 }
 
-.teacher-roster-rankings {
+.teacher-roster-achievements {
   order: 2;
 }
 
-.teacher-roster-status {
+.teacher-roster-rankings {
   order: 3;
 }
 
@@ -538,6 +538,16 @@ textarea:focus {
   border-radius: 14px;
   font-weight: 900;
   padding: 13px 16px;
+}
+
+.ghost-button {
+  background: #eef2ff;
+  border: 0;
+  border-radius: 12px;
+  color: #273b77;
+  font-size: 13px;
+  font-weight: 900;
+  padding: 10px 12px;
 }
 
 .primary-button,
@@ -882,7 +892,21 @@ textarea:focus {
   padding: 16px;
 }
 
-.roster-class > div {
+.roster-class-heading {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+}
+
+.roster-class-heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.roster-class > div:not(.roster-class-heading) {
   display: grid;
   gap: 6px;
   grid-column: 1 / -1;
@@ -1258,6 +1282,8 @@ textarea:focus {
   border: 1px solid var(--line);
   border-radius: 16px;
   display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   justify-content: space-between;
   margin-bottom: 12px;
   padding: 14px;
@@ -1265,6 +1291,7 @@ textarea:focus {
 
 .achievement-summary span {
   color: var(--muted);
+  margin-right: auto;
 }
 
 .achievement-table {
