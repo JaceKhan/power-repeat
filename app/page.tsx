@@ -1212,7 +1212,8 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        throw new Error("assignment request failed");
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error || "assignment request failed");
       }
 
       const nextAssignment = (await response.json()) as Assignment;
@@ -1237,8 +1238,13 @@ export default function Home() {
       setNotice(
         `"${nextAssignment.passageTitle}" 배정이 완료되었습니다. 아래에서 다른 본문을 이어서 배정할 수 있습니다.`
       );
-    } catch {
-      setNotice("과제 배정에 실패했습니다. 입력값을 확인하고 다시 시도해 주세요.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      setNotice(
+        message
+          ? `과제 배정에 실패했습니다: ${message}`
+          : "과제 배정에 실패했습니다. 입력값을 확인하고 다시 시도해 주세요."
+      );
     } finally {
       setIsSaving(false);
     }
