@@ -400,38 +400,42 @@ audio {
 }
 
 .calendar-day.tone-pending {
-  background: #e2e8f0;
-  border-color: #94a3b8;
-  color: #475569;
+  background: #94a3b8;
+  border-color: #64748b;
   box-shadow: none;
+  color: #fff;
 }
 
-.calendar-day.tone-B {
-  background: #f59e0b;
-  border-color: #d97706;
-  color: #fff;
-  box-shadow: none;
+.calendar-day.tone-B,
+.calendar-day.has-homework.tone-B {
+  background: #ffea00;
+  border-color: #facc15;
+  box-shadow: 0 0 0 2px rgba(255, 234, 0, 0.45), 0 0 18px rgba(255, 234, 0, 0.55);
+  color: #111827;
 }
 
-.calendar-day.tone-A {
-  background: #2563eb;
-  border-color: #1d4ed8;
-  color: #fff;
-  box-shadow: none;
+.calendar-day.tone-A,
+.calendar-day.has-homework.tone-A {
+  background: #00d4ff;
+  border-color: #22d3ee;
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.4), 0 0 18px rgba(0, 212, 255, 0.55);
+  color: #082f49;
 }
 
-.calendar-day.tone-aplus {
-  background: #16a34a;
-  border-color: #15803d;
-  color: #fff;
-  box-shadow: none;
+.calendar-day.tone-aplus,
+.calendar-day.has-homework.tone-aplus {
+  background: #39ff14;
+  border-color: #22c55e;
+  box-shadow: 0 0 0 2px rgba(57, 255, 20, 0.4), 0 0 18px rgba(57, 255, 20, 0.55);
+  color: #052e16;
 }
 
-.calendar-day.tone-resubmit {
-  background: #ea580c;
-  border-color: #c2410c;
+.calendar-day.tone-resubmit,
+.calendar-day.has-homework.tone-resubmit {
+  background: #ff3d00;
+  border-color: #ff6e40;
+  box-shadow: 0 0 0 2px rgba(255, 61, 0, 0.4), 0 0 18px rgba(255, 61, 0, 0.5);
   color: #fff;
-  box-shadow: none;
 }
 
 .day-grade-label {
@@ -459,18 +463,21 @@ audio {
 }
 
 .tone-chip.tone-B {
-  background: #f59e0b;
-  color: #fff;
+  background: #ffea00;
+  box-shadow: 0 0 12px rgba(255, 234, 0, 0.55);
+  color: #111827;
 }
 
 .tone-chip.tone-A {
-  background: #2563eb;
-  color: #fff;
+  background: #00d4ff;
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.55);
+  color: #082f49;
 }
 
 .tone-chip.tone-aplus {
-  background: #16a34a;
-  color: #fff;
+  background: #39ff14;
+  box-shadow: 0 0 12px rgba(57, 255, 20, 0.55);
+  color: #052e16;
 }
 
 .student-homework-list {
@@ -497,21 +504,24 @@ audio {
 }
 
 .grade-card-b {
-  background: #fff7ed;
-  border-color: #f59e0b;
+  background: #fffde7;
+  border-color: #ffea00;
   border-width: 2px;
+  box-shadow: 0 0 16px rgba(255, 234, 0, 0.28);
 }
 
 .grade-card-a {
-  background: #eff6ff;
-  border-color: #2563eb;
+  background: #e0f7ff;
+  border-color: #00d4ff;
   border-width: 2px;
+  box-shadow: 0 0 16px rgba(0, 212, 255, 0.28);
 }
 
 .grade-card-aplus {
-  background: #f0fdf4;
-  border-color: #16a34a;
+  background: #f0ffe8;
+  border-color: #39ff14;
   border-width: 2px;
+  box-shadow: 0 0 16px rgba(57, 255, 20, 0.28);
 }
 
 .back-button,
