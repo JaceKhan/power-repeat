@@ -7,6 +7,7 @@ import {
   createSupabaseClassGroup,
   createSupabaseStudent,
   createSupabaseSubmission,
+  deleteSupabaseAssignment,
   findSupabaseStudentByCredentials,
   findSupabaseStudentByNameAndCode,
   getSupabaseHomeworkState,
@@ -526,6 +527,35 @@ export const createAssignment = async (input: CreateAssignmentInput) => {
   await writeData(data);
 
   return assignment;
+};
+
+export const deleteAssignment = async (assignmentId: string) => {
+  const id = assertText(assignmentId, "assignmentId");
+
+  if (isSupabaseConfigured()) {
+    return deleteSupabaseAssignment(id);
+  }
+
+  const data = await readData();
+  const assignmentExists = data.assignments.some((assignment) => assignment.id === id);
+
+  if (!assignmentExists) {
+    throw new Error("assignment not found");
+  }
+
+  const submissionsToDelete = data.submissions.filter((submission) => submission.assignmentId === id);
+  await Promise.all(
+    submissionsToDelete
+      .map((submission) => submission.audioFileName)
+      .filter(Boolean)
+      .map((fileName) => removeUploadIfPresent(fileName))
+  );
+
+  data.assignments = data.assignments.filter((assignment) => assignment.id !== id);
+  data.submissions = data.submissions.filter((submission) => submission.assignmentId !== id);
+  await writeData(data);
+
+  return { ok: true };
 };
 
 export const createClassGroup = async (input: CreateClassInput) => {
