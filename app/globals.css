@@ -682,6 +682,100 @@ textarea:focus {
   font-size: 24px;
 }
 
+.assign-steps {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 4px;
+}
+
+.assign-steps button {
+  align-items: start;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  color: var(--muted);
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  text-align: left;
+}
+
+.assign-steps button.active {
+  background: var(--brand-soft);
+  border-color: rgba(37, 99, 235, 0.32);
+  color: var(--foreground);
+}
+
+.assign-steps strong {
+  color: var(--brand);
+  font-size: 18px;
+}
+
+.assign-step-copy {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+.assign-summary,
+.assign-confirm {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.assign-summary {
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.assign-confirm > div {
+  display: grid;
+  gap: 4px;
+}
+
+.assign-confirm span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.assign-confirm strong,
+.assign-confirm p {
+  margin: 0;
+}
+
+.assignment-card-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.assignment-card-main span {
+  font-weight: 900;
+}
+
+.heading-status {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.assignment-delete-button {
+  background: var(--danger-soft);
+  border: 0;
+  border-radius: 12px;
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 900;
+  padding: 10px 12px;
+}
+
 .student-grade-list {
   border-top: 1px solid var(--line);
   display: grid;
@@ -693,9 +787,15 @@ textarea:focus {
 .student-grade-row {
   align-items: center;
   color: var(--muted);
-  display: flex;
+  display: grid;
   font-size: 13px;
-  justify-content: space-between;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.student-grade-name {
+  color: var(--foreground);
+  font-weight: 700;
 }
 
 .achievement-layout {
@@ -910,6 +1010,12 @@ textarea:focus {
   font-size: 12px;
   font-weight: 900;
   padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.status.pending {
+  background: #e2e8f0;
+  color: #475569;
 }
 
 .status.submitted {
@@ -1067,6 +1173,11 @@ textarea:focus {
   color: #14532d;
 }
 
+.feedback-box.pending {
+  background: #e2e8f0;
+  color: #334155;
+}
+
 .feedback-box.resubmit {
   background: var(--danger-soft);
   color: #7f1d1d;
@@ -1197,5 +1308,18 @@ textarea:focus {
   .submission-details {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .assign-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .student-grade-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .student-grade-row .status {
+    grid-column: 1 / -1;
+    justify-self: start;
   }
 }

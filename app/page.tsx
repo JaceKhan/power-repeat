@@ -22,11 +22,33 @@ type PrepSegment = {
   id: string;
   text: string;
 };
+type HomeworkStatusKey = "pending" | "submitted" | "reviewed" | "resubmit";
+type AssignStep = 1 | 2 | 3;
 
-const DEFAULT_FORM_DUE_DATE = "2026-06-24";
+const getDefaultDueDate = () => {
+  const date = new Date();
+  date.setDate(date.getDate() + 7);
+  return date.toISOString().slice(0, 10);
+};
+
 const TARGET_PREP_SEGMENT_LENGTH = 150;
 const MAX_PREP_SEGMENTS = 15;
 const SPEECH_RATE = 0.88;
+
+const homeworkStatusLabel: Record<HomeworkStatusKey, string> = {
+  pending: "미제출",
+  submitted: "검토 대기",
+  reviewed: "피드백 완료",
+  resubmit: "재제출 필요"
+};
+
+const getHomeworkStatus = (submission?: Submission | null): HomeworkStatusKey => {
+  if (!submission) {
+    return "pending";
+  }
+
+  return submission.status;
+};
 
 const formatDateTime = (value: string) =>
   new Intl.DateTimeFormat("ko-KR", {
@@ -309,12 +331,13 @@ export default function Home() {
   const [completedPrepSegments, setCompletedPrepSegments] = useState<Record<string, string[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [assignStep, setAssignStep] = useState<AssignStep>(1);
   const [form, setForm] = useState({
     bookName: "Reading Explorer",
     level: 2,
     passageTitle: "",
     className: "CHESS Reading A",
-    dueDate: DEFAULT_FORM_DUE_DATE,
+    dueDate: getDefaultDueDate(),
     passage: "",
     instructions: "본문 전체를 또렷하게 읽고, 제출 전 반드시 미리듣기로 확인하세요."
   });
@@ -857,8 +880,17 @@ export default function Home() {
 
   const createAssignment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (assignStep !== 3) {
+      return;
+    }
     if (!form.bookName.trim() || !form.passageTitle.trim() || !form.passage.trim() || !form.dueDate) {
       setNotice("책이름, 본문제목, 본문, 마감일은 필수입니다.");
+      setAssignStep(1);
+      return;
+    }
+    if (!form.className.trim()) {
+      setNotice("배정할 반을 선택해 주세요.");
+      setAssignStep(2);
       return;
     }
 
@@ -880,8 +912,11 @@ export default function Home() {
       setSelectedAssignmentId(nextAssignment.id);
       setForm((current) => ({
         ...current,
-        passage: ""
+        passageTitle: "",
+        passage: "",
+        dueDate: getDefaultDueDate()
       }));
+      setAssignStep(1);
       await loadState();
       setNotice("새 리딩 녹음 과제가 배정되고 템플릿으로 저장되었습니다.");
     } catch {
@@ -889,6 +924,20 @@ export default function Home() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const goToAssignStep = (step: AssignStep) => {
+    if (step > 1 && (!form.bookName.trim() || !form.passageTitle.trim() || !form.passage.trim())) {
+      setNotice("1단계에서 책이름, 본문제목, 본문을 먼저 입력해 주세요.");
+      setAssignStep(1);
+      return;
+    }
+    if (step > 2 && (!form.className.trim() || !form.dueDate)) {
+      setNotice("2단계에서 반과 마감일을 확인해 주세요.");
+      setAssignStep(2);
+      return;
+    }
+    setAssignStep(step);
   };
 
   const loadTemplateIntoForm = (template: PassageTemplate) => {
@@ -900,7 +949,42 @@ export default function Home() {
       passage: template.passage,
       instructions: template.instructions
     }));
-    setNotice("저장된 본문 템플릿을 불러왔습니다. 반과 마감일을 확인한 뒤 배정하세요.");
+    setAssignStep(2);
+    setTeacherCategory("content");
+    setNotice("템플릿을 불러왔습니다. 반과 마감일을 확인한 뒤 배정하세요.");
+    window.requestAnimationFrame(() => {
+      document.getElementById("assignment-create")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
+  const deleteAssignmentForClass = async (assignment: Assignment) => {
+    const confirmed = window.confirm(
+      `"${assignment.passageTitle}" 과제를 삭제할까요?\n제출 기록과 녹음 파일도 함께 삭제됩니다. 템플릿은 유지됩니다.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await fetch(`/api/assignments/${assignment.id}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) {
+        throw new Error("delete assignment request failed");
+      }
+
+      if (selectedAssignmentId === assignment.id) {
+        setSelectedAssignmentId("");
+      }
+      await loadState();
+      setNotice("과제가 삭제되었습니다. 템플릿은 보관함에 남아 있습니다.");
+    } catch {
+      setNotice("과제 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const createClass = async (event: FormEvent<HTMLFormElement>) => {
@@ -1170,7 +1254,7 @@ export default function Home() {
               <nav>
                 {teacherCategory === "content" ? (
                   <>
-                    <a href="#assignment-create">과제 할당하기</a>
+                    <a href="#assignment-create">과제 배정하기</a>
                     <a href="#template-library">템플릿 불러오기</a>
                   </>
                 ) : (
@@ -1189,91 +1273,183 @@ export default function Home() {
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">Teacher</p>
-                <h2>리딩 과제 만들기</h2>
+                <h2>리딩 과제 배정</h2>
               </div>
-              <span className="badge">수업 연계</span>
+              <span className="badge">1→2→3 배정</span>
+            </div>
+            <div className="assign-steps" aria-label="과제 배정 단계">
+              <button
+                className={assignStep === 1 ? "active" : ""}
+                type="button"
+                onClick={() => goToAssignStep(1)}
+              >
+                <strong>1</strong>
+                <span>본문 준비</span>
+              </button>
+              <button
+                className={assignStep === 2 ? "active" : ""}
+                type="button"
+                onClick={() => goToAssignStep(2)}
+              >
+                <strong>2</strong>
+                <span>반·마감일</span>
+              </button>
+              <button
+                className={assignStep === 3 ? "active" : ""}
+                type="button"
+                onClick={() => goToAssignStep(3)}
+              >
+                <strong>3</strong>
+                <span>확인 배정</span>
+              </button>
             </div>
             <form className="stack" onSubmit={createAssignment}>
-              <label>
-                책이름
-                <input
-                  value={form.bookName}
-                  onChange={(event) => setForm((current) => ({ ...current, bookName: event.target.value }))}
-                  placeholder="예: Reading Explorer"
-                />
-              </label>
-              <label>
-                Level
-                <div className="level-picker">
-                  {[1, 2, 3, 4, 5, 6].map((level) => (
-                    <button
-                      className={form.level === level ? "active" : ""}
-                      key={level}
-                      type="button"
-                      onClick={() => setForm((current) => ({ ...current, level }))}
-                    >
-                      Level {level}
+              {assignStep === 1 ? (
+                <>
+                  <p className="assign-step-copy">배정할 리딩 본문을 입력하거나 오른쪽 템플릿에서 불러오세요.</p>
+                  <label>
+                    책이름
+                    <input
+                      value={form.bookName}
+                      onChange={(event) => setForm((current) => ({ ...current, bookName: event.target.value }))}
+                      placeholder="예: Reading Explorer"
+                    />
+                  </label>
+                  <label>
+                    Level
+                    <div className="level-picker">
+                      {[1, 2, 3, 4, 5, 6].map((level) => (
+                        <button
+                          className={form.level === level ? "active" : ""}
+                          key={level}
+                          type="button"
+                          onClick={() => setForm((current) => ({ ...current, level }))}
+                        >
+                          Level {level}
+                        </button>
+                      ))}
+                    </div>
+                  </label>
+                  <label>
+                    본문제목
+                    <input
+                      value={form.passageTitle}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, passageTitle: event.target.value }))
+                      }
+                      placeholder="예: The Great White"
+                    />
+                  </label>
+                  <label>
+                    학생이 읽을 본문
+                    <textarea
+                      value={form.passage}
+                      onChange={(event) => setForm((current) => ({ ...current, passage: event.target.value }))}
+                      placeholder="학생들이 녹음해야 할 영어 본문을 입력하세요."
+                      rows={8}
+                    />
+                  </label>
+                  <label>
+                    제출 안내
+                    <textarea
+                      value={form.instructions}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, instructions: event.target.value }))
+                      }
+                      rows={3}
+                    />
+                  </label>
+                  <div className="button-row">
+                    <button className="primary-button" type="button" onClick={() => goToAssignStep(2)}>
+                      다음: 반·마감일
                     </button>
-                  ))}
-                </div>
-              </label>
-              <label>
-                본문제목
-                <input
-                  value={form.passageTitle}
-                  onChange={(event) => setForm((current) => ({ ...current, passageTitle: event.target.value }))}
-                  placeholder="예: The Great White"
-                />
-              </label>
-              <div className="two-columns">
-                <label>
-                  반
-                  <select
-                    value={form.className}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, className: event.target.value }))
-                    }
-                  >
-                    {classes.map((classGroup) => (
-                      <option key={classGroup.id} value={classGroup.name}>
-                        {classGroup.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  마감일
-                  <input
-                    type="date"
-                    value={form.dueDate}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, dueDate: event.target.value }))
-                    }
-                  />
-                </label>
-              </div>
-              <label>
-                학생이 읽을 본문
-                <textarea
-                  value={form.passage}
-                  onChange={(event) => setForm((current) => ({ ...current, passage: event.target.value }))}
-                  placeholder="학생들이 녹음해야 할 영어 본문을 입력하세요."
-                  rows={8}
-                />
-              </label>
-              <label>
-                제출 안내
-                <textarea
-                  value={form.instructions}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, instructions: event.target.value }))
-                  }
-                  rows={3}
-                />
-              </label>
-              <button className="primary-button" disabled={isSaving} type="submit">
-                {isSaving ? "저장 중..." : "과제 배정하기"}
-              </button>
+                  </div>
+                </>
+              ) : null}
+
+              {assignStep === 2 ? (
+                <>
+                  <p className="assign-step-copy">어느 반에, 언제까지 낼지 정합니다.</p>
+                  <div className="assign-summary">
+                    <strong>
+                      {form.bookName} / Level {form.level} / {form.passageTitle || "본문제목 없음"}
+                    </strong>
+                    <span>본문 {form.passage.trim().length}자</span>
+                  </div>
+                  <div className="two-columns">
+                    <label>
+                      반
+                      <select
+                        value={form.className}
+                        onChange={(event) =>
+                          setForm((current) => ({ ...current, className: event.target.value }))
+                        }
+                      >
+                        {classes.map((classGroup) => (
+                          <option key={classGroup.id} value={classGroup.name}>
+                            {classGroup.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      마감일
+                      <input
+                        type="date"
+                        value={form.dueDate}
+                        onChange={(event) =>
+                          setForm((current) => ({ ...current, dueDate: event.target.value }))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="button-row">
+                    <button type="button" onClick={() => goToAssignStep(1)}>
+                      이전
+                    </button>
+                    <button className="primary-button" type="button" onClick={() => goToAssignStep(3)}>
+                      다음: 확인 배정
+                    </button>
+                  </div>
+                </>
+              ) : null}
+
+              {assignStep === 3 ? (
+                <>
+                  <p className="assign-step-copy">아래 내용으로 반에 과제를 배정합니다. 템플릿도 함께 저장됩니다.</p>
+                  <div className="assign-confirm">
+                    <div>
+                      <span>본문</span>
+                      <strong>
+                        {form.bookName} / Level {form.level} / {form.passageTitle}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>반</span>
+                      <strong>{form.className}</strong>
+                    </div>
+                    <div>
+                      <span>마감일</span>
+                      <strong>{form.dueDate}</strong>
+                    </div>
+                    <div>
+                      <span>본문 미리보기</span>
+                      <p>
+                        {form.passage.trim().slice(0, 180)}
+                        {form.passage.trim().length > 180 ? "…" : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="button-row">
+                    <button type="button" onClick={() => goToAssignStep(2)}>
+                      이전
+                    </button>
+                    <button className="primary-button" disabled={isSaving} type="submit">
+                      {isSaving ? "배정 중..." : "이 내용으로 배정하기"}
+                    </button>
+                  </div>
+                </>
+              ) : null}
             </form>
           </article>
 
@@ -1601,6 +1777,9 @@ export default function Home() {
                 const relatedSubmissions = submissions.filter(
                   (submission) => submission.assignmentId === assignment.id
                 );
+                const submittedCount = relatedSubmissions.filter(
+                  (submission) => submission.status !== "resubmit"
+                ).length;
                 return (
                   <div className="assignment-card" key={assignment.id}>
                     <div>
@@ -1612,17 +1791,27 @@ export default function Home() {
                     <div className="metrics">
                       <span>마감 {assignment.dueDate}</span>
                       <strong>
-                        {relatedSubmissions.length}/{assignedStudents.length}
+                        {submittedCount}/{assignedStudents.length}
                       </strong>
                     </div>
+                    <button
+                      className="assignment-delete-button"
+                      disabled={isSaving}
+                      type="button"
+                      onClick={() => deleteAssignmentForClass(assignment)}
+                    >
+                      과제 삭제
+                    </button>
                     <div className="student-grade-list">
                       {assignedStudents.map((student) => {
                         const submission = relatedSubmissions.find((item) => item.studentId === student.id);
+                        const status = getHomeworkStatus(submission);
                         const grade = submission?.grade ?? "F";
 
                         return (
                           <span className="student-grade-row" key={student.id}>
-                            {student.name}
+                            <span className="student-grade-name">{student.name}</span>
+                            <span className={`status ${status}`}>{homeworkStatusLabel[status]}</span>
                             <strong className={getGradeClassName(grade)}>{grade}</strong>
                           </span>
                         );
@@ -1658,11 +1847,7 @@ export default function Home() {
                           </p>
                         </div>
                         <span className={`status ${submission.status}`}>
-                          {submission.status === "submitted"
-                            ? "검토 대기"
-                            : submission.status === "reviewed"
-                              ? "피드백 완료"
-                              : "재제출 요청"}
+                          {homeworkStatusLabel[submission.status]}
                         </span>
                         <strong className={getGradeClassName(submission.grade)}>{submission.grade}</strong>
                       </div>
@@ -1763,6 +1948,7 @@ export default function Home() {
                 const submission = submissions.find(
                   (item) => item.assignmentId === assignment.id && item.studentId === selectedStudent?.id
                 );
+                const status = getHomeworkStatus(submission);
                 return (
                   <button
                     className={assignment.id === selectedAssignment?.id ? "assignment-card selected" : "assignment-card"}
@@ -1773,17 +1959,14 @@ export default function Home() {
                       resetRecording();
                     }}
                   >
-                    <span>{assignment.passageTitle}</span>
-                    <small>
-                      {assignment.bookName} / Level {assignment.level} / {assignment.passageTitle}
-                    </small>
-                    <small>
-                      {submission
-                        ? submission.status === "resubmit"
-                          ? "재제출 필요"
-                          : `제출 완료 - ${submission.grade}`
-                        : `마감 ${assignment.dueDate}`}
-                    </small>
+                    <span className="assignment-card-main">
+                      <span>{assignment.passageTitle}</span>
+                      <small>
+                        {assignment.bookName} / Level {assignment.level}
+                      </small>
+                      <small>마감 {assignment.dueDate}</small>
+                    </span>
+                    <span className={`status ${status}`}>{homeworkStatusLabel[status]}</span>
                   </button>
                 );
               })}
@@ -1801,7 +1984,12 @@ export default function Home() {
                       {selectedAssignment.bookName} / Level {selectedAssignment.level}
                     </p>
                   </div>
-                  <span className="badge">마감 {selectedAssignment.dueDate}</span>
+                  <div className="heading-status">
+                    <span className={`status ${getHomeworkStatus(currentSubmission)}`}>
+                      {homeworkStatusLabel[getHomeworkStatus(currentSubmission)]}
+                    </span>
+                    <span className="badge">마감 {selectedAssignment.dueDate}</span>
+                  </div>
                 </div>
                 <div className="student-workspace">
                   <div className="student-reading-column">
@@ -1874,13 +2062,7 @@ export default function Home() {
 
                     {currentSubmission ? (
                       <div className={`feedback-box ${currentSubmission.status}`}>
-                        <strong>
-                          {currentSubmission.status === "resubmit"
-                            ? "재제출 요청"
-                            : currentSubmission.status === "reviewed"
-                              ? "선생님 피드백"
-                              : "제출 완료"}
-                        </strong>
+                        <strong>{homeworkStatusLabel[currentSubmission.status]}</strong>
                         <p>
                           {currentSubmission.feedback ||
                             "녹음이 제출되었습니다. 선생님이 검토하면 피드백이 표시됩니다."}
@@ -1895,7 +2077,12 @@ export default function Home() {
                         </span>
                         <audio controls src={currentSubmission.audioUrl} />
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className="feedback-box pending">
+                        <strong>미제출</strong>
+                        <p>아직 녹음을 제출하지 않았습니다. 듣고 연습한 뒤 녹음해 제출하세요.</p>
+                      </div>
+                    )}
                   </div>
 
                   <aside className="student-recorder-sticky">
