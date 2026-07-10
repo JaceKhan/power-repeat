@@ -23,6 +23,7 @@ export async function POST(request: Request) {
 
     const submission = await createSubmission({
       assignmentId: String(formData.get("assignmentId") ?? ""),
+      sessionId: String(formData.get("sessionId") ?? ""),
       studentId: user.studentId,
       durationSec: Number(formData.get("durationSec") ?? 0),
       prepCompleted: String(formData.get("prepCompleted") ?? "") === "true",

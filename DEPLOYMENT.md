@@ -16,6 +16,20 @@ Supabase에서 아래 작업을 먼저 완료합니다.
 4. Project URL 확인
 5. API Keys에서 service role key 확인
 
+회차(세션) 배정을 쓰려면 아래 마이그레이션도 실행합니다.
+
+```sql
+alter table assignments
+  add column if not exists mode text default 'single',
+  add column if not exists sessions jsonb default '[]'::jsonb;
+
+alter table submissions
+  add column if not exists session_id text;
+
+create index if not exists submissions_session_student_idx
+  on submissions (session_id, student_id);
+```
+
 ## 2. Vercel 환경변수
 
 Vercel 프로젝트 Settings > Environment Variables에 아래 값을 추가합니다.
