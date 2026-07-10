@@ -106,6 +106,46 @@ const getGradeClassName = (grade: Submission["grade"] | "F") =>
           : "grade-f"
   }`;
 
+const gradeRank: Record<Submission["grade"], number> = {
+  B: 1,
+  A: 2,
+  "A+": 3
+};
+
+const getCalendarDayTone = (
+  daySessions: VisibleSession[],
+  submissions: Submission[],
+  studentId?: string
+): "none" | "pending" | "resubmit" | "B" | "A" | "A+" => {
+  if (!daySessions.length || !studentId) {
+    return "none";
+  }
+
+  const daySubmissions = daySessions.map((item) =>
+    submissions.find(
+      (submission) => submission.sessionId === item.session.id && submission.studentId === studentId
+    )
+  );
+
+  if (daySubmissions.some((submission) => submission?.status === "resubmit")) {
+    return "resubmit";
+  }
+
+  if (daySubmissions.some((submission) => !submission)) {
+    return "pending";
+  }
+
+  const grades = daySubmissions
+    .map((submission) => submission?.grade)
+    .filter((grade): grade is Submission["grade"] => Boolean(grade));
+
+  if (!grades.length) {
+    return "pending";
+  }
+
+  return grades.reduce((lowest, grade) => (gradeRank[grade] < gradeRank[lowest] ? grade : lowest), grades[0]);
+};
+
 const gradePoints: Record<Submission["grade"] | "F", number> = {
   "A+": 5,
   A: 4,
@@ -130,6 +170,9 @@ const toDateInputValue = (date: Date) => {
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
+
+const isSessionWithinDeadline = (dueDate: string, today = toDateInputValue(new Date())) =>
+  today <= dueDate;
 
 const getSessionAssignedDate = (session: Pick<AssignmentSession, "assignedDate" | "dueDate">) =>
   session.assignedDate || session.dueDate;
@@ -273,6 +316,7 @@ export default function Home() {
   const [calendarMonth, setCalendarMonth] = useState(() => getMonthStart(new Date()));
   const [teacherCalendarMonth, setTeacherCalendarMonth] = useState(() => getMonthStart(new Date()));
   const [selectedCalendarDate, setSelectedCalendarDate] = useState("");
+  const [studentView, setStudentView] = useState<"calendar" | "record">("calendar");
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingSec, setRecordingSec] = useState(0);
   const [audioDataUrl, setAudioDataUrl] = useState("");
@@ -394,6 +438,17 @@ export default function Home() {
   const prepCompleted =
     prepSegments.length > 0 && completedSegmentIds.length >= prepSegments.length;
 
+  const canImproveCurrentSubmission = Boolean(
+    selectedSession &&
+      currentSubmission &&
+      currentSubmission.grade !== "A+" &&
+      isSessionWithinDeadline(selectedSession.dueDate)
+  );
+
+  const canRecordCurrentSession = Boolean(
+    selectedSession && (!currentSubmission || isSessionWithinDeadline(selectedSession.dueDate))
+  );
+
   const formPrepSegments = useMemo<PrepSegment[]>(
     () => splitPassageIntoPrepSegments(form.passage),
     [form.passage]
@@ -409,6 +464,14 @@ export default function Home() {
     });
     return byDate;
   }, [visibleSessions]);
+
+  const sameDaySessions = useMemo(() => {
+    if (!selectedSession) {
+      return [] as VisibleSession[];
+    }
+    const assignedDate = getSessionAssignedDate(selectedSession);
+    return sessionsByDate.get(assignedDate) ?? [];
+  }, [selectedSession, sessionsByDate]);
 
   const classScheduledSessions = useMemo(() => {
     return assignments
@@ -506,10 +569,11 @@ export default function Home() {
         dateString,
         isCurrentMonth: date.getMonth() === monthStartDate.getMonth(),
         sessionCount: daySessions.length,
-        colorIndexes
+        colorIndexes,
+        tone: getCalendarDayTone(daySessions, submissions, selectedStudent?.id)
       };
     });
-  }, [calendarMonth, sessionsByDate]);
+  }, [calendarMonth, selectedStudent?.id, sessionsByDate, submissions]);
 
   const calendarTitle = useMemo(
     () => new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long" }).format(calendarMonth),
@@ -724,6 +788,9 @@ export default function Home() {
       const state = (await response.json()) as AuthenticatedHomeworkState;
       setCurrentUser(state.currentUser);
       setActiveRole(state.currentUser.role === "student" ? "student" : "teacher");
+      if (state.currentUser.role === "student") {
+        setStudentView("calendar");
+      }
       setAssignments(state.assignments);
       setSubmissions(state.submissions);
       setClasses(state.classes);
@@ -1027,6 +1094,14 @@ export default function Home() {
       return;
     }
 
+    const previousSubmission = submissions.find(
+      (item) => item.sessionId === selectedSession.id && item.studentId === selectedStudent.id
+    );
+    if (previousSubmission && !isSessionWithinDeadline(selectedSession.dueDate)) {
+      setNotice("제출 기간이 끝나 등급을 더 이상 올릴 수 없습니다.");
+      return;
+    }
+
     setIsSaving(true);
     try {
       const formData = new FormData();
@@ -1048,6 +1123,7 @@ export default function Home() {
       }
 
       const submission = (await response.json()) as Submission;
+      const previousGrade = previousSubmission?.grade;
       setSubmissions((current) => [
         submission,
         ...current.filter(
@@ -1055,7 +1131,16 @@ export default function Home() {
         )
       ]);
       resetRecording();
-      setNotice("녹음 숙제가 서버에 제출되었습니다. 선생님 검토 후 피드백을 확인하세요.");
+
+      const improved =
+        previousGrade && gradeRank[submission.grade] > gradeRank[previousGrade]
+          ? ` ${previousGrade} → ${submission.grade}로 올랐어요!`
+          : "";
+      const canImproveMore =
+        submission.grade !== "A+" && isSessionWithinDeadline(selectedSession.dueDate)
+          ? " 기간 안에 다시 녹음하면 더 높은 등급을 받을 수 있습니다."
+          : "";
+      setNotice(`제출 완료! 등급 ${submission.grade}.${improved}${canImproveMore}`);
     } catch {
       setNotice("녹음 제출에 실패했습니다. 네트워크 상태를 확인하고 다시 시도해 주세요.");
     } finally {
@@ -1184,12 +1269,26 @@ export default function Home() {
     resetRecording();
   };
 
+  const openHomeworkRecord = (item: VisibleSession) => {
+    selectHomeworkSession(item);
+    setSelectedCalendarDate(getSessionAssignedDate(item.session));
+    setStudentView("record");
+  };
+
+  const backToHomeworkCalendar = () => {
+    setStudentView("calendar");
+    resetRecording();
+  };
+
   const selectCalendarDate = (dateString: string) => {
-    setSelectedCalendarDate((current) => (current === dateString ? "" : dateString));
-    const firstSessionForDay = sessionsByDate.get(dateString)?.[0];
-    if (firstSessionForDay) {
-      selectHomeworkSession(firstSessionForDay);
+    const daySessions = sessionsByDate.get(dateString) ?? [];
+    if (!daySessions.length) {
+      setSelectedCalendarDate((current) => (current === dateString ? "" : dateString));
+      return;
     }
+
+    setSelectedCalendarDate(dateString);
+    openHomeworkRecord(daySessions[0]);
   };
 
   const moveCalendarMonth = (monthOffset: number) => {
@@ -2683,301 +2782,419 @@ export default function Home() {
         </section>
         </>
       ) : currentUser ? (
-        <section className="grid student-grid">
-          <article className="panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Student</p>
-                <h2>내 숙제</h2>
-              </div>
-            </div>
-            <label>
-              학생 선택
-              <select
-                value={selectedStudentId}
-                onChange={(event) => {
-                  setSelectedStudentId(event.target.value);
-                  setSelectedSessionId("");
-                  setSelectedCalendarDate("");
-                  resetRecording();
-                }}
-              >
-                {students.map((student) => (
-                  <option key={student.id} value={student.id}>
-                    {student.name} - {student.className}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="homework-calendar">
-              <p className="calendar-guidance">
-                배정된 요일에 하는 것이 원칙이며, 그 주 일요일까지 완료하면 됩니다.
-              </p>
-              <div className="calendar-header">
-                <button type="button" onClick={() => moveCalendarMonth(-1)}>
-                  이전
-                </button>
-                <strong>{calendarTitle}</strong>
-                <button type="button" onClick={() => moveCalendarMonth(1)}>
-                  다음
-                </button>
-              </div>
-              <div className="calendar-grid">
-                {calendarWeekdayLabels.map((label) => (
-                  <span className="calendar-weekday" key={label}>
-                    {label}
-                  </span>
-                ))}
-                {calendarDays.map((day) => (
-                  <button
-                    className={[
-                      "calendar-day",
-                      day.sessionCount ? "has-homework" : "",
-                      selectedCalendarDate === day.dateString ? "selected" : "",
-                      todayDateString === day.dateString ? "today" : "",
-                      day.isCurrentMonth ? "" : "muted"
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    key={day.dateString}
-                    type="button"
-                    onClick={() => selectCalendarDate(day.dateString)}
-                  >
-                    <span>{day.date.getDate()}</span>
-                    {day.colorIndexes.length ? (
-                      <span className="color-dots" aria-hidden="true">
-                        {day.colorIndexes.map((colorIndex) => (
-                          <i className={`color-dot passage-color-${colorIndex}`} key={colorIndex} />
-                        ))}
-                      </span>
-                    ) : null}
-                  </button>
-                ))}
-              </div>
-              <div className="homework-summary">
-                <span>남은 숙제 {homeworkSummary.remaining}</span>
-                <span>클리어 {homeworkSummary.cleared}</span>
-              </div>
-              {selectedCalendarDate ? (
-                <button className="calendar-clear" type="button" onClick={() => setSelectedCalendarDate("")}>
-                  전체 숙제 보기
-                </button>
-              ) : null}
-            </div>
-            <div className="assignment-list compact">
-              {homeworkListSessions.map((item) => {
-                const { assignment, session } = item;
-                const assignedDate = getSessionAssignedDate(session);
-                const submission = submissions.find(
-                  (submissionItem) =>
-                    submissionItem.sessionId === session.id && submissionItem.studentId === selectedStudent?.id
-                );
-                const status = getHomeworkStatus(submission);
-                const isMultiSession = assignment.sessions.length > 1;
-                return (
-                  <button
-                    className={session.id === selectedSession?.id ? "assignment-card selected" : "assignment-card"}
-                    key={session.id}
-                    type="button"
-                    onClick={() => selectHomeworkSession(item)}
-                  >
-                    <span
-                      className={`passage-swatch ${getPassageColorClass(getAssignmentColorKey(assignment))}`}
-                      aria-hidden="true"
-                    />
-                    <span className="assignment-card-main">
-                      <span>
-                        {assignment.passageTitle}
-                        {isMultiSession ? ` ${session.index}/${assignment.sessions.length}` : ""}
-                      </span>
-                      <small>
-                        {assignment.bookName} / Level {assignment.level}
-                      </small>
-                      <small>
-                        {formatSessionScheduleLabel(assignedDate, session.dueDate)} ·{" "}
-                        {getSessionSummary(assignment, session)}
-                      </small>
-                      <small>{ASSIGNMENT_MODE_LABEL[assignment.mode]}</small>
-                    </span>
-                    <span className={`status ${status}`}>{homeworkStatusLabel[status]}</span>
-                  </button>
-                );
-              })}
-              {!homeworkListSessions.length ? (
-                <p className="empty">
-                  {selectedCalendarDate ? "선택한 날짜에는 숙제가 없습니다." : "현재 배정된 숙제가 없습니다."}
-                </p>
-              ) : null}
-            </div>
-          </article>
-
-          <article className="panel wide">
-            {selectedAssignment && selectedSession ? (
-              <>
-                <div className="panel-heading">
-                  <div>
-                    <p className="eyebrow">{selectedAssignment.className}</p>
-                    <h2>{selectedAssignment.passageTitle}</h2>
-                    <p>
-                      {selectedAssignment.bookName} / Level {selectedAssignment.level} ·{" "}
-                      {selectedAssignment.sessions.length > 1
-                        ? `${selectedSession.index}/${selectedAssignment.sessions.length}회차`
-                        : "1회차"}{" "}
-                      · {getSessionSummary(selectedAssignment, selectedSession)}
-                    </p>
-                  </div>
-                  <div className="heading-status">
-                    <span className={`status ${getHomeworkStatus(currentSubmission)}`}>
-                      {homeworkStatusLabel[getHomeworkStatus(currentSubmission)]}
-                    </span>
-                    <span className="badge">
-                      {formatSessionScheduleLabel(getSessionAssignedDate(selectedSession), selectedSession.dueDate)}
-                    </span>
-                  </div>
-                </div>
-                <div className="student-workspace">
-                  <div className="student-reading-column">
-                    <div className="passage-box">
-                      <p>{selectedSessionPassage}</p>
-                    </div>
-                    <div className="listening-tools">
-                      <div>
-                        <strong>먼저 듣고 따라 읽기</strong>
-                        <p>
-                          본문을 약 150자 기준으로 고르게 나누고, 긴 글도 최대 15개 구간까지만
-                          표시합니다. 모든 구간을 끝까지 들으면 A+ 준비 표시가 됩니다.
-                        </p>
-                      </div>
-                      <div className="button-row">
-                        <button className="primary-button" type="button" onClick={() => playNativePronunciation()}>
-                          전체 원어민 발음으로 듣기
-                        </button>
-                        {isSpeaking ? (
-                          <button type="button" onClick={stopNativePronunciation}>
-                            듣기 중지
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="prep-panel">
-                      <div className="prep-summary">
-                    <div>
-                      <strong>구간 듣기 완료</strong>
-                      <span>
-                        {completedSegmentIds.length}/{prepSegments.length}
-                      </span>
-                    </div>
-                    <span className={`grade-pill ${prepCompleted ? "grade-aplus" : "grade-a"}`}>
-                      {prepCompleted ? "A+ 준비 완료" : "듣기 없이 제출하면 A"}
-                    </span>
-                  </div>
-                  <div className="prep-segments">
-                    {prepSegments.map((segment, index) => {
-                      const isCompleted = completedSegmentIds.includes(segment.id);
-                      const isActive = speakingSegmentId === segment.id;
-
-                      return (
-                        <button
-                          className={`prep-segment ${isCompleted ? "completed" : ""} ${
-                            isActive ? "active" : ""
-                          }`}
-                          key={segment.id}
-                          type="button"
-                          onClick={() => playNativePronunciation(segment.text, segment.id)}
-                        >
-                          <span>{index + 1}번 구간 듣기</span>
-                          <p>{segment.text}</p>
-                          <small>
-                            {isActive
-                              ? "재생 중 - 다시 누르면 멈춤"
-                              : isCompleted
-                                ? "완료 - A+ 준비에 반영됨"
-                                : "클릭해서 끝까지 듣기"}
-                          </small>
-                        </button>
-                      );
-                    })}
-                  </div>
-                    </div>
-                    <div className="instructions">
-                      <strong>선생님 안내</strong>
-                      <p>{selectedAssignment.instructions}</p>
-                    </div>
-
-                    {currentSubmission ? (
-                      <div className={`feedback-box ${currentSubmission.status}`}>
-                        <strong>{homeworkStatusLabel[currentSubmission.status]}</strong>
-                        <p>
-                          {currentSubmission.feedback ||
-                            "녹음이 제출되었습니다. 선생님이 검토하면 피드백이 표시됩니다."}
-                        </p>
-                        {currentSubmission.score ? <span>점수 {currentSubmission.score}/100</span> : null}
-                        <strong className={getGradeClassName(currentSubmission.grade)}>
-                          제출 등급 {currentSubmission.grade}
-                        </strong>
-                        <span>
-                          구간 듣기 {currentSubmission.completedPrepSegments ?? 0}/
-                          {currentSubmission.totalPrepSegments ?? 0}
-                        </span>
-                        <audio controls src={currentSubmission.audioUrl} />
-                      </div>
-                    ) : (
-                      <div className="feedback-box pending">
-                        <strong>미제출</strong>
-                        <p>아직 녹음을 제출하지 않았습니다. 듣고 연습한 뒤 녹음해 제출하세요.</p>
-                      </div>
-                    )}
-                  </div>
-
-                  <aside className="student-recorder-sticky">
-                    <div className="recorder">
-                  <div>
-                    <p className="eyebrow">Recorder</p>
-                    <h3>
-                      {recordingState === "recording"
-                        ? `녹음 중 ${formatDuration(recordingSec)}`
-                        : recordingState === "ready"
-                          ? "제출 전 미리듣기"
-                          : "녹음 준비"}
-                    </h3>
-                  </div>
-                  <div className="button-row">
-                    {recordingState === "recording" ? (
-                      <button className="danger-button" type="button" onClick={stopRecording}>
-                        녹음 끝내기
-                      </button>
-                    ) : (
-                      <button className="primary-button" type="button" onClick={startRecording}>
-                        녹음 시작
-                      </button>
-                    )}
-                    <label className="upload-button">
-                      파일로 제출
-                      <input accept="audio/*" type="file" onChange={handleUploadFallback} />
-                    </label>
-                  </div>
-                  {audioDataUrl ? <audio controls src={audioDataUrl} /> : null}
-                  <div className="button-row">
-                    <button type="button" onClick={resetRecording}>
-                      다시 녹음
-                    </button>
-                    <button className="submit-button" disabled={isSaving} type="button" onClick={submitRecording}>
-                      {isSaving ? "제출 중..." : "최종 제출"}
-                    </button>
-                  </div>
-                  <p className="helper-text">
-                    제출 인정 기준: 본문 전체를 한 번에 녹음하고, 미리듣기로 음성이 들리는지 확인하세요.
-                    모든 구간 듣기 후 충분히 녹음하면 A+, 듣기 없이 정상 녹음하면 A, 녹음이 지나치게
-                    짧으면 B, 미제출은 선생님 화면에서 F로 표시됩니다.
+        <section className={`student-shell student-view-${studentView}`}>
+          {studentView === "calendar" ? (
+            <article className="panel student-calendar-panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Student</p>
+                  <h2>내 숙제</h2>
+                  <p className="student-lead">
+                    달력에서 숙제를 고르면 녹음 화면으로 이동합니다.
                   </p>
-                    </div>
-                  </aside>
                 </div>
-              </>
-            ) : (
-              <p className="empty">현재 배정된 과제가 없습니다.</p>
-            )}
-          </article>
+              </div>
+              <label className="student-picker">
+                학생 선택
+                <select
+                  value={selectedStudentId}
+                  onChange={(event) => {
+                    setSelectedStudentId(event.target.value);
+                    setSelectedSessionId("");
+                    setSelectedCalendarDate("");
+                    setStudentView("calendar");
+                    resetRecording();
+                  }}
+                >
+                  {students.map((student) => (
+                    <option key={student.id} value={student.id}>
+                      {student.name} - {student.className}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="homework-calendar student-homework-calendar">
+                <p className="calendar-guidance">
+                  배정된 요일에 하는 것이 원칙이며, 그 주 일요일까지 완료하면 됩니다.
+                </p>
+                <div className="calendar-header">
+                  <button type="button" onClick={() => moveCalendarMonth(-1)}>
+                    이전
+                  </button>
+                  <strong>{calendarTitle}</strong>
+                  <button type="button" onClick={() => moveCalendarMonth(1)}>
+                    다음
+                  </button>
+                </div>
+                <div className="calendar-grid student-calendar-grid">
+                  {calendarWeekdayLabels.map((label) => (
+                    <span className="calendar-weekday" key={label}>
+                      {label}
+                    </span>
+                  ))}
+                  {calendarDays.map((day) => (
+                    <button
+                      className={[
+                        "calendar-day",
+                        day.sessionCount ? "has-homework" : "",
+                        day.tone !== "none" ? `tone-${day.tone === "A+" ? "aplus" : day.tone}` : "",
+                        selectedCalendarDate === day.dateString ? "selected" : "",
+                        todayDateString === day.dateString ? "today" : "",
+                        day.isCurrentMonth ? "" : "muted"
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      key={day.dateString}
+                      type="button"
+                      onClick={() => selectCalendarDate(day.dateString)}
+                    >
+                      <span>{day.date.getDate()}</span>
+                      {day.tone === "A+" || day.tone === "A" || day.tone === "B" ? (
+                        <strong className="day-grade-label">{day.tone}</strong>
+                      ) : day.colorIndexes.length ? (
+                        <span className="color-dots" aria-hidden="true">
+                          {day.colorIndexes.map((colorIndex) => (
+                            <i className={`color-dot passage-color-${colorIndex}`} key={colorIndex} />
+                          ))}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+                <div className="homework-summary">
+                  <span>남은 숙제 {homeworkSummary.remaining}</span>
+                  <span>클리어 {homeworkSummary.cleared}</span>
+                </div>
+                <div className="grade-legend">
+                  <span className="tone-chip tone-pending">미제출</span>
+                  <span className="tone-chip tone-B">B</span>
+                  <span className="tone-chip tone-A">A</span>
+                  <span className="tone-chip tone-aplus">A+</span>
+                </div>
+                {selectedCalendarDate ? (
+                  <button className="calendar-clear" type="button" onClick={() => setSelectedCalendarDate("")}>
+                    전체 숙제 보기
+                  </button>
+                ) : null}
+              </div>
+              <div className="assignment-list compact student-homework-list">
+                {homeworkListSessions.map((item) => {
+                  const { assignment, session } = item;
+                  const assignedDate = getSessionAssignedDate(session);
+                  const submission = submissions.find(
+                    (submissionItem) =>
+                      submissionItem.sessionId === session.id &&
+                      submissionItem.studentId === selectedStudent?.id
+                  );
+                  const status = getHomeworkStatus(submission);
+                  const isMultiSession = assignment.sessions.length > 1;
+                  return (
+                    <button
+                      className={[
+                        "assignment-card",
+                        "student-homework-card",
+                        submission ? `grade-card-${submission.grade === "A+" ? "aplus" : submission.grade.toLowerCase()}` : "grade-card-pending"
+                      ].join(" ")}
+                      key={session.id}
+                      type="button"
+                      onClick={() => openHomeworkRecord(item)}
+                    >
+                      <span
+                        className={`passage-swatch ${getPassageColorClass(getAssignmentColorKey(assignment))}`}
+                        aria-hidden="true"
+                      />
+                      <span className="assignment-card-main">
+                        <span>
+                          {assignment.passageTitle}
+                          {isMultiSession ? ` ${session.index}/${assignment.sessions.length}` : ""}
+                        </span>
+                        <small>
+                          {assignment.bookName} / Level {assignment.level}
+                        </small>
+                        <small>{formatSessionScheduleLabel(assignedDate, session.dueDate)}</small>
+                      </span>
+                      {submission ? (
+                        <strong className={getGradeClassName(submission.grade)}>{submission.grade}</strong>
+                      ) : (
+                        <span className={`status ${status}`}>{homeworkStatusLabel[status]}</span>
+                      )}
+                    </button>
+                  );
+                })}
+                {!homeworkListSessions.length ? (
+                  <p className="empty">
+                    {selectedCalendarDate
+                      ? "선택한 날짜에는 숙제가 없습니다."
+                      : "현재 배정된 숙제가 없습니다."}
+                  </p>
+                ) : null}
+              </div>
+            </article>
+          ) : (
+            <article className="panel wide student-record-panel">
+              {selectedAssignment && selectedSession ? (
+                <>
+                  <div className="panel-heading student-record-heading">
+                    <div>
+                      <button className="back-button" type="button" onClick={backToHomeworkCalendar}>
+                        ← 숙제 달력
+                      </button>
+                      <p className="eyebrow">{selectedAssignment.className}</p>
+                      <h2>{selectedAssignment.passageTitle}</h2>
+                      <p className="student-record-meta">
+                        {selectedAssignment.bookName} / Level {selectedAssignment.level} ·{" "}
+                        {selectedAssignment.sessions.length > 1
+                          ? `${selectedSession.index}/${selectedAssignment.sessions.length}회차`
+                          : "1회차"}{" "}
+                        · {getSessionSummary(selectedAssignment, selectedSession)}
+                      </p>
+                    </div>
+                    <div className="heading-status">
+                      {currentSubmission ? (
+                        <strong className={getGradeClassName(currentSubmission.grade)}>
+                          {currentSubmission.grade}
+                        </strong>
+                      ) : (
+                        <span className={`status ${getHomeworkStatus(currentSubmission)}`}>
+                          {homeworkStatusLabel[getHomeworkStatus(currentSubmission)]}
+                        </span>
+                      )}
+                      <span className="badge">
+                        {formatSessionScheduleLabel(
+                          getSessionAssignedDate(selectedSession),
+                          selectedSession.dueDate
+                        )}
+                      </span>
+                    </div>
+                  </div>
+
+                  {sameDaySessions.length > 1 ? (
+                    <div className="same-day-sessions">
+                      {sameDaySessions.map((item) => {
+                        const submission = submissions.find(
+                          (submissionItem) =>
+                            submissionItem.sessionId === item.session.id &&
+                            submissionItem.studentId === selectedStudent?.id
+                        );
+                        return (
+                          <button
+                            className={
+                              item.session.id === selectedSession.id
+                                ? "same-day-chip active"
+                                : "same-day-chip"
+                            }
+                            key={item.session.id}
+                            type="button"
+                            onClick={() => openHomeworkRecord(item)}
+                          >
+                            {item.assignment.passageTitle}
+                            {item.assignment.sessions.length > 1
+                              ? ` ${item.session.index}회`
+                              : ""}
+                            {submission ? ` · ${submission.grade}` : " · 미제출"}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+
+                  <div className="student-workspace student-record-workspace">
+                    <div className="student-reading-column">
+                      <div className="passage-box student-passage-box">
+                        <p>{selectedSessionPassage}</p>
+                      </div>
+                      <div className="listening-tools">
+                        <div>
+                          <strong>먼저 듣고 따라 읽기</strong>
+                          <p>
+                            모든 구간을 끝까지 들으면 A+ 준비 표시가 됩니다. 기간 안에 다시
+                            녹음하면 등급을 올릴 수 있습니다.
+                          </p>
+                        </div>
+                        <div className="button-row">
+                          <button
+                            className="primary-button"
+                            type="button"
+                            onClick={() => playNativePronunciation()}
+                          >
+                            전체 원어민 발음으로 듣기
+                          </button>
+                          {isSpeaking ? (
+                            <button type="button" onClick={stopNativePronunciation}>
+                              듣기 중지
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="prep-panel">
+                        <div className="prep-summary">
+                          <div>
+                            <strong>구간 듣기 완료</strong>
+                            <span>
+                              {completedSegmentIds.length}/{prepSegments.length}
+                            </span>
+                          </div>
+                          <span className={`grade-pill ${prepCompleted ? "grade-aplus" : "grade-a"}`}>
+                            {prepCompleted ? "A+ 준비 완료" : "듣기 없이 제출하면 A"}
+                          </span>
+                        </div>
+                        <div className="prep-segments">
+                          {prepSegments.map((segment, index) => {
+                            const isCompleted = completedSegmentIds.includes(segment.id);
+                            const isActive = speakingSegmentId === segment.id;
+
+                            return (
+                              <button
+                                className={`prep-segment ${isCompleted ? "completed" : ""} ${
+                                  isActive ? "active" : ""
+                                }`}
+                                key={segment.id}
+                                type="button"
+                                onClick={() => playNativePronunciation(segment.text, segment.id)}
+                              >
+                                <span>{index + 1}번 구간 듣기</span>
+                                <p>{segment.text}</p>
+                                <small>
+                                  {isActive
+                                    ? "재생 중 - 다시 누르면 멈춤"
+                                    : isCompleted
+                                      ? "완료 - A+ 준비에 반영됨"
+                                      : "클릭해서 끝까지 듣기"}
+                                </small>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="instructions">
+                        <strong>선생님 안내</strong>
+                        <p>{selectedAssignment.instructions}</p>
+                      </div>
+
+                      {currentSubmission ? (
+                        <div className={`feedback-box ${currentSubmission.status}`}>
+                          <strong>{homeworkStatusLabel[currentSubmission.status]}</strong>
+                          <p>
+                            {currentSubmission.feedback ||
+                              "녹음이 제출되었습니다. 선생님이 검토하면 피드백이 표시됩니다."}
+                          </p>
+                          {currentSubmission.score ? (
+                            <span>점수 {currentSubmission.score}/100</span>
+                          ) : null}
+                          <strong className={getGradeClassName(currentSubmission.grade)}>
+                            제출 등급 {currentSubmission.grade}
+                          </strong>
+                          <span>
+                            구간 듣기 {currentSubmission.completedPrepSegments ?? 0}/
+                            {currentSubmission.totalPrepSegments ?? 0}
+                          </span>
+                          <audio controls src={currentSubmission.audioUrl} />
+                          {canImproveCurrentSubmission ? (
+                            <p className="improve-hint">
+                              지금 등급은 {currentSubmission.grade}입니다. 일요일(
+                              {formatAssignedDateLabel(selectedSession.dueDate)})까지 다시 녹음하면
+                              더 높은 등급으로 바꿀 수 있어요.
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <div className="feedback-box pending">
+                          <strong>미제출</strong>
+                          <p>아직 녹음을 제출하지 않았습니다. 듣고 연습한 뒤 녹음해 제출하세요.</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <aside className="student-recorder-sticky">
+                      <div className="recorder">
+                        <div>
+                          <p className="eyebrow">Recorder</p>
+                          <h3>
+                            {recordingState === "recording"
+                              ? `녹음 중 ${formatDuration(recordingSec)}`
+                              : recordingState === "ready"
+                                ? "제출 전 미리듣기"
+                                : currentSubmission
+                                  ? "다시 녹음하기"
+                                  : "녹음 준비"}
+                          </h3>
+                        </div>
+                        {canRecordCurrentSession ? (
+                          <>
+                            <div className="button-row">
+                              {recordingState === "recording" ? (
+                                <button
+                                  className="danger-button"
+                                  type="button"
+                                  onClick={stopRecording}
+                                >
+                                  녹음 끝내기
+                                </button>
+                              ) : (
+                                <button
+                                  className="primary-button"
+                                  type="button"
+                                  onClick={startRecording}
+                                >
+                                  녹음 시작
+                                </button>
+                              )}
+                              <label className="upload-button">
+                                파일로 제출
+                                <input accept="audio/*" type="file" onChange={handleUploadFallback} />
+                              </label>
+                            </div>
+                            {audioDataUrl ? <audio controls src={audioDataUrl} /> : null}
+                            <div className="button-row">
+                              <button type="button" onClick={resetRecording}>
+                                다시 녹음
+                              </button>
+                              <button
+                                className="submit-button"
+                                disabled={isSaving}
+                                type="button"
+                                onClick={submitRecording}
+                              >
+                                {isSaving
+                                  ? "제출 중..."
+                                  : currentSubmission
+                                    ? "다시 제출하기"
+                                    : "최종 제출"}
+                              </button>
+                            </div>
+                            <p className="helper-text">
+                              모든 구간 듣기 후 충분히 녹음하면 A+, 듣기 없이 정상 녹음하면 A,
+                              녹음이 지나치게 짧으면 B입니다. 기간 안에 다시 제출하면 등급이
+                              갱신됩니다.
+                            </p>
+                          </>
+                        ) : (
+                          <p className="helper-text">
+                            제출 기간이 끝나 더 이상 녹음을 바꿀 수 없습니다. 달력에서 등급을
+                            확인하세요.
+                          </p>
+                        )}
+                        <button
+                          className="ghost-button recorder-back"
+                          type="button"
+                          onClick={backToHomeworkCalendar}
+                        >
+                          달력으로 돌아가기
+                        </button>
+                      </div>
+                    </aside>
+                  </div>
+                </>
+              ) : (
+                <div className="empty-record">
+                  <p className="empty">현재 배정된 과제가 없습니다.</p>
+                  <button className="back-button" type="button" onClick={backToHomeworkCalendar}>
+                    ← 숙제 달력
+                  </button>
+                </div>
+              )}
+            </article>
+          )}
         </section>
       ) : null}
     </main>
