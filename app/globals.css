@@ -454,8 +454,8 @@ audio {
 }
 
 .tone-chip.tone-pending {
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: #e2e8f0;
+  color: #475569;
 }
 
 .tone-chip.tone-B {
@@ -492,7 +492,8 @@ audio {
 }
 
 .grade-card-pending {
-  border-color: #93c5fd;
+  background: #f8fafc;
+  border-color: #cbd5e1;
 }
 
 .grade-card-b {
