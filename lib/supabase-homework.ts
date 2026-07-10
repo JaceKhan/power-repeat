@@ -371,6 +371,7 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
   if (mapped.id !== tempId) {
     mapped.sessions = materializeSessions(
       mapped.sessions.map((session) => ({
+        assignedDate: session.assignedDate,
         dueDate: session.dueDate,
         segmentStart: session.segmentStart,
         segmentEnd: session.segmentEnd
