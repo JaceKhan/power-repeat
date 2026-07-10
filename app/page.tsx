@@ -91,50 +91,91 @@ const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
       ?.map((sentence) => sentence.trim())
       .filter(Boolean) ?? [normalizedPassage];
 
-  const desiredCount = Math.max(
-    1,
-    Math.ceil(normalizedPassage.length / TARGET_PREP_SEGMENT_LENGTH)
-  );
-  const segmentCount = Math.min(MAX_PREP_SEGMENTS, desiredCount, sentences.length);
+  const units: string[] = [];
+  sentences.forEach((sentence) => {
+    if (sentence.length <= TARGET_PREP_SEGMENT_LENGTH) {
+      units.push(sentence);
+      return;
+    }
 
-  const sentenceEnds: number[] = [];
-  let totalLength = 0;
-  sentences.forEach((sentence, index) => {
-    totalLength += sentence.length + (index > 0 ? 1 : 0);
-    sentenceEnds.push(totalLength);
+    const words = sentence.split(" ").filter(Boolean);
+    let currentWords: string[] = [];
+    let currentLength = 0;
+
+    words.forEach((word) => {
+      const nextLength = currentLength === 0 ? word.length : currentLength + 1 + word.length;
+      if (currentLength > 0 && nextLength > TARGET_PREP_SEGMENT_LENGTH) {
+        units.push(currentWords.join(" "));
+        currentWords = [word];
+        currentLength = word.length;
+      } else {
+        currentWords.push(word);
+        currentLength = nextLength;
+      }
+    });
+
+    if (currentWords.length > 0) {
+      units.push(currentWords.join(" "));
+    }
   });
 
+  const totalLength = units.join(" ").length;
+  const segmentCount = Math.min(
+    MAX_PREP_SEGMENTS,
+    Math.max(1, Math.ceil(totalLength / TARGET_PREP_SEGMENT_LENGTH)),
+    units.length
+  );
+
   const segments: string[] = [];
-  let startIndex = 0;
+  let unitIndex = 0;
 
   for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex += 1) {
-    const isLast = segmentIndex === segmentCount - 1;
-    if (isLast) {
-      segments.push(sentences.slice(startIndex).join(" "));
+    const remainingSegments = segmentCount - segmentIndex;
+    const remainingUnits = units.slice(unitIndex);
+    if (remainingSegments === 1) {
+      segments.push(remainingUnits.join(" "));
       break;
     }
 
-    const targetEnd = Math.round(((segmentIndex + 1) * totalLength) / segmentCount);
-    const maxEndIndex = sentences.length - (segmentCount - segmentIndex - 1) - 1;
+    const targetLength = Math.round(remainingUnits.join(" ").length / remainingSegments);
+    const parts: string[] = [];
+    let segmentLength = 0;
 
-    let endIndex = startIndex;
-    for (let index = startIndex; index <= maxEndIndex; index += 1) {
-      endIndex = index;
-      if (sentenceEnds[index] >= targetEnd) {
+    while (unitIndex < units.length) {
+      const unitsAfterTake = units.length - unitIndex - 1;
+      const segmentsAfter = remainingSegments - 1;
+      if (parts.length > 0 && unitsAfterTake < segmentsAfter) {
+        break;
+      }
+
+      const unit = units[unitIndex];
+      const nextLength = segmentLength === 0 ? unit.length : segmentLength + 1 + unit.length;
+      if (parts.length > 0 && segmentLength >= targetLength && unitsAfterTake >= segmentsAfter) {
+        break;
+      }
+
+      if (
+        parts.length > 0 &&
+        nextLength > targetLength &&
+        unitsAfterTake >= segmentsAfter
+      ) {
+        const overshoot = nextLength - targetLength;
+        const undershoot = targetLength - segmentLength;
+        if (overshoot >= undershoot) {
+          break;
+        }
+      }
+
+      parts.push(unit);
+      segmentLength = nextLength;
+      unitIndex += 1;
+
+      if (segmentLength >= targetLength && units.length - unitIndex >= segmentsAfter) {
         break;
       }
     }
 
-    if (endIndex > startIndex) {
-      const previousDistance = Math.abs(sentenceEnds[endIndex - 1] - targetEnd);
-      const currentDistance = Math.abs(sentenceEnds[endIndex] - targetEnd);
-      if (previousDistance < currentDistance) {
-        endIndex -= 1;
-      }
-    }
-
-    segments.push(sentences.slice(startIndex, endIndex + 1).join(" "));
-    startIndex = endIndex + 1;
+    segments.push(parts.join(" "));
   }
 
   return segments.map((text, index) => ({
