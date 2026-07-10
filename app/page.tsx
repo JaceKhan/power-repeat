@@ -22,6 +22,7 @@ import {
   type SessionDraft
 } from "@/lib/assignment-sessions";
 import { splitPassageIntoPrepSegments, type PrepSegment } from "@/lib/passage-segments";
+import { getAssignmentColorKey, getPassageColorClass, getPassageColorIndex } from "@/lib/passage-colors";
 
 type RecordingState = "idle" | "recording" | "ready";
 type LoginDemoUser = Pick<SessionUser, "email" | "name" | "role"> & {
@@ -282,6 +283,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [assignStep, setAssignStep] = useState<AssignStep>(1);
+  const [assignSuccessTitle, setAssignSuccessTitle] = useState("");
   const [form, setForm] = useState<AssignmentForm>(() => getInitialAssignmentForm());
   const [classForm, setClassForm] = useState({
     name: ""
@@ -407,6 +409,55 @@ export default function Home() {
     return byDate;
   }, [visibleSessions]);
 
+  const classScheduledSessions = useMemo(() => {
+    return assignments
+      .filter((assignment) => assignment.className === form.className)
+      .flatMap((assignment) =>
+        assignment.sessions.map((session) => ({
+          assignment,
+          session,
+          assignedDate: getSessionAssignedDate(session),
+          colorIndex: getPassageColorIndex(getAssignmentColorKey(assignment))
+        }))
+      );
+  }, [assignments, form.className]);
+
+  const classScheduleByDate = useMemo(() => {
+    const byDate = new Map<string, typeof classScheduledSessions>();
+    classScheduledSessions.forEach((item) => {
+      const items = byDate.get(item.assignedDate) ?? [];
+      items.push(item);
+      byDate.set(item.assignedDate, items);
+    });
+    return byDate;
+  }, [classScheduledSessions]);
+
+  const classPassageLegend = useMemo(() => {
+    const seen = new Map<string, { title: string; colorClass: string }>();
+    classScheduledSessions.forEach(({ assignment }) => {
+      const key = getAssignmentColorKey(assignment);
+      if (!seen.has(key)) {
+        seen.set(key, {
+          title: assignment.passageTitle,
+          colorClass: getPassageColorClass(key)
+        });
+      }
+    });
+    return Array.from(seen.values());
+  }, [classScheduledSessions]);
+
+  const draftColorClass = useMemo(
+    () =>
+      getPassageColorClass(
+        getAssignmentColorKey({
+          bookName: form.bookName,
+          level: form.level,
+          passageTitle: form.passageTitle || "새 본문"
+        })
+      ),
+    [form.bookName, form.level, form.passageTitle]
+  );
+
   const calendarDays = useMemo(() => {
     const monthStartDate = getMonthStart(calendarMonth);
     const gridStart = getWeekStart(monthStartDate);
@@ -415,11 +466,18 @@ export default function Home() {
       const date = new Date(gridStart);
       date.setDate(gridStart.getDate() + index);
       const dateString = toDateInputValue(date);
+      const daySessions = sessionsByDate.get(dateString) ?? [];
+      const colorIndexes = Array.from(
+        new Set(
+          daySessions.map((item) => getPassageColorIndex(getAssignmentColorKey(item.assignment)))
+        )
+      ).slice(0, 4);
       return {
         date,
         dateString,
         isCurrentMonth: date.getMonth() === monthStartDate.getMonth(),
-        sessionCount: sessionsByDate.get(dateString)?.length ?? 0
+        sessionCount: daySessions.length,
+        colorIndexes
       };
     });
   }, [calendarMonth, sessionsByDate]);
@@ -442,14 +500,18 @@ export default function Home() {
       const date = new Date(gridStart);
       date.setDate(gridStart.getDate() + index);
       const dateString = toDateInputValue(date);
+      const existing = classScheduleByDate.get(dateString) ?? [];
+      const colorIndexes = Array.from(new Set(existing.map((item) => item.colorIndex))).slice(0, 4);
       return {
         date,
         dateString,
         isAssigned: teacherSelectedDateSet.has(dateString),
-        isCurrentMonth: date.getMonth() === monthStartDate.getMonth()
+        isCurrentMonth: date.getMonth() === monthStartDate.getMonth(),
+        existingCount: existing.length,
+        colorIndexes
       };
     });
-  }, [teacherCalendarMonth, teacherSelectedDateSet]);
+  }, [classScheduleByDate, teacherCalendarMonth, teacherSelectedDateSet]);
   const teacherCalendarTitle = useMemo(
     () =>
       new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long" }).format(teacherCalendarMonth),
@@ -1156,6 +1218,7 @@ export default function Home() {
       const nextAssignment = (await response.json()) as Assignment;
       setSelectedAssignmentId(nextAssignment.id);
       setSelectedSessionId(nextAssignment.sessions[0]?.id ?? "");
+      setAssignSuccessTitle(nextAssignment.passageTitle);
       setForm((current) => {
         const dueDate = getDefaultDueDate();
         const nextForm: AssignmentForm = {
@@ -1163,20 +1226,31 @@ export default function Home() {
           passageTitle: "",
           passage: "",
           dueDate,
-          mode: "single",
-          sessionCount: 3,
+          mode: current.mode,
+          sessionCount: current.mode === "single" ? 1 : current.sessionCount,
           sessionDrafts: []
         };
         return nextForm;
       });
       setAssignStep(1);
       await loadState();
-      setNotice("새 리딩 녹음 과제가 배정되고 템플릿으로 저장되었습니다.");
+      setNotice(
+        `"${nextAssignment.passageTitle}" 배정이 완료되었습니다. 아래에서 다른 본문을 이어서 배정할 수 있습니다.`
+      );
     } catch {
       setNotice("과제 배정에 실패했습니다. 입력값을 확인하고 다시 시도해 주세요.");
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const continueAssigning = () => {
+    setAssignSuccessTitle("");
+    setAssignStep(1);
+    setNotice("다른 본문을 입력하거나 템플릿을 불러와 이어서 배정하세요. 달력에 기존 배정이 색으로 표시됩니다.");
+    window.requestAnimationFrame(() => {
+      document.getElementById("assignment-create")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   };
 
   const goToAssignStep = (step: AssignStep) => {
@@ -1199,6 +1273,7 @@ export default function Home() {
   };
 
   const loadTemplateIntoForm = (template: PassageTemplate) => {
+    setAssignSuccessTitle("");
     setForm((current) => {
       const nextForm: AssignmentForm = {
         ...current,
@@ -1574,6 +1649,22 @@ export default function Home() {
               </button>
             </div>
             <form className="stack" onSubmit={createAssignment}>
+              {assignSuccessTitle ? (
+                <div className="assign-success">
+                  <div>
+                    <strong>“{assignSuccessTitle}” 배정 완료</strong>
+                    <p>같은 반에 다른 본문을 이어서 배정할 수 있습니다. 달력에는 본문별 색으로 표시됩니다.</p>
+                  </div>
+                  <div className="button-row">
+                    <button className="primary-button" type="button" onClick={continueAssigning}>
+                      이어서 다른 본문 배정
+                    </button>
+                    <a className="text-link-button" href="#assignment-status">
+                      제출 현황 보기
+                    </a>
+                  </div>
+                </div>
+              ) : null}
               {assignStep === 1 ? (
                 <>
                   <p className="assign-step-copy">배정할 리딩 본문을 입력하거나 오른쪽 템플릿에서 불러오세요.</p>
@@ -1695,6 +1786,9 @@ export default function Home() {
                     </span>
                   </div>
                   <div className="homework-calendar assign-calendar">
+                    <p className="calendar-guidance">
+                      달력에서 배정할 요일을 클릭하세요. 이미 배정된 본문은 색 점으로 보입니다.
+                    </p>
                     <div className="calendar-header">
                       <button type="button" onClick={() => moveTeacherCalendarMonth(-1)}>
                         이전
@@ -1715,7 +1809,8 @@ export default function Home() {
                           aria-pressed={day.isAssigned}
                           className={[
                             "calendar-day",
-                            day.isAssigned ? "assigned" : "",
+                            day.isAssigned ? `assigned ${draftColorClass}` : "",
+                            day.existingCount ? "has-existing" : "",
                             todayDateString === day.dateString ? "today" : "",
                             day.isCurrentMonth ? "" : "muted"
                           ]
@@ -1726,10 +1821,30 @@ export default function Home() {
                           onClick={() => selectTeacherCalendarDate(day.dateString)}
                         >
                           <span>{day.date.getDate()}</span>
-                          {day.isAssigned ? <small>배정</small> : null}
+                          {day.colorIndexes.length ? (
+                            <span className="color-dots" aria-hidden="true">
+                              {day.colorIndexes.map((colorIndex) => (
+                                <i className={`color-dot passage-color-${colorIndex}`} key={colorIndex} />
+                              ))}
+                            </span>
+                          ) : day.isAssigned ? (
+                            <small>선택</small>
+                          ) : null}
                         </button>
                       ))}
                     </div>
+                    {classPassageLegend.length ? (
+                      <div className="passage-legend">
+                        {classPassageLegend.map((item) => (
+                          <span className="passage-legend-item" key={`${item.colorClass}-${item.title}`}>
+                            <i className={`color-dot ${item.colorClass}`} />
+                            {item.title}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="calendar-guidance">이 반에 아직 배정된 본문이 없습니다.</p>
+                    )}
                   </div>
                   <div className="session-editor assigned-session-list">
                     {form.sessionDrafts.length ? (
@@ -2434,7 +2549,13 @@ export default function Home() {
                     onClick={() => selectCalendarDate(day.dateString)}
                   >
                     <span>{day.date.getDate()}</span>
-                    {day.sessionCount ? <small>{day.sessionCount}</small> : null}
+                    {day.colorIndexes.length ? (
+                      <span className="color-dots" aria-hidden="true">
+                        {day.colorIndexes.map((colorIndex) => (
+                          <i className={`color-dot passage-color-${colorIndex}`} key={colorIndex} />
+                        ))}
+                      </span>
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -2465,6 +2586,10 @@ export default function Home() {
                     type="button"
                     onClick={() => selectHomeworkSession(item)}
                   >
+                    <span
+                      className={`passage-swatch ${getPassageColorClass(getAssignmentColorKey(assignment))}`}
+                      aria-hidden="true"
+                    />
                     <span className="assignment-card-main">
                       <span>
                         {assignment.passageTitle}
