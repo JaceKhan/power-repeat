@@ -452,8 +452,9 @@ const assertText = (value: unknown, fieldName: string) => {
 };
 
 const getAudioExtension = (audio: File) => {
-  if (audio.type && contentTypeToExtension[audio.type]) {
-    return contentTypeToExtension[audio.type];
+  const normalizedType = audio.type.split(";")[0]?.trim().toLowerCase();
+  if (normalizedType && contentTypeToExtension[normalizedType]) {
+    return contentTypeToExtension[normalizedType];
   }
 
   const extension = path.extname(audio.name).replace(".", "").toLowerCase();
@@ -711,7 +712,9 @@ export const createSubmission = async (input: CreateSubmissionInput) => {
     throw new Error("assignment not found");
   }
 
-  const session = assignment.sessions.find((item) => item.id === sessionId);
+  const session =
+    assignment.sessions.find((item) => item.id === sessionId) ||
+    (assignment.sessions.length === 1 ? assignment.sessions[0] : undefined);
   if (!session) {
     throw new Error("session not found");
   }
@@ -725,7 +728,7 @@ export const createSubmission = async (input: CreateSubmissionInput) => {
   }
 
   const previousSubmission = data.submissions.find(
-    (item) => item.sessionId === sessionId && item.studentId === studentId
+    (item) => item.sessionId === session.id && item.studentId === studentId
   );
 
   if (previousSubmission?.audioFileName) {
@@ -758,7 +761,7 @@ export const createSubmission = async (input: CreateSubmissionInput) => {
   const submission: Submission = {
     id: previousSubmission?.id || `sub-${randomUUID()}`,
     assignmentId,
-    sessionId,
+    sessionId: session.id,
     studentId,
     studentName: student.name,
     grade,
@@ -778,7 +781,7 @@ export const createSubmission = async (input: CreateSubmissionInput) => {
   data.submissions = [
     submission,
     ...data.submissions.filter(
-      (item) => !(item.sessionId === sessionId && item.studentId === studentId)
+      (item) => !(item.sessionId === session.id && item.studentId === studentId)
     )
   ];
   await writeData(data);

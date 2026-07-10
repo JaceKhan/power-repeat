@@ -374,6 +374,16 @@ audio {
   margin-bottom: 8px;
 }
 
+.student-identity {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.student-identity strong {
+  font-size: 18px;
+}
+
 .student-homework-calendar {
   gap: 16px;
 }
