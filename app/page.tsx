@@ -1259,6 +1259,13 @@ export default function Home() {
     });
   };
 
+  const openAssignmentStatus = () => {
+    setTeacherCategory("roster");
+    window.requestAnimationFrame(() => {
+      document.getElementById("assignment-status")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
   const goToAssignStep = (step: AssignStep) => {
     if (step > 1 && (!form.bookName.trim() || !form.passageTitle.trim() || !form.passage.trim())) {
       setNotice("1단계에서 책이름, 본문제목, 본문을 먼저 입력해 주세요.");
@@ -1665,9 +1672,9 @@ export default function Home() {
                     <button className="primary-button" type="button" onClick={continueAssigning}>
                       이어서 다른 본문 배정
                     </button>
-                    <a className="text-link-button" href="#assignment-status">
-                      제출 현황 보기
-                    </a>
+                    <button type="button" onClick={openAssignmentStatus}>
+                      과제 배정 현황 보기
+                    </button>
                   </div>
                 </div>
               ) : null}
