@@ -81,39 +81,60 @@ const blobToDataUrl = (blob: Blob) =>
 
 const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
   const normalizedPassage = passage.replace(/\s+/g, " ").trim();
-  const targetLength = Math.max(
-    TARGET_PREP_SEGMENT_LENGTH,
-    Math.ceil(normalizedPassage.length / MAX_PREP_SEGMENTS)
-  );
-  const sentences = normalizedPassage
-    .match(/[^.!?]+[.!?]+|[^.!?]+$/g)
-    ?.map((sentence) => sentence.trim())
-    .filter(Boolean) ?? [normalizedPassage].filter(Boolean);
-
-  const segments: string[] = [];
-  let current = "";
-
-  sentences.forEach((sentence) => {
-    const next = current ? `${current} ${sentence}` : sentence;
-    if (current && next.length > targetLength) {
-      segments.push(current);
-      current = sentence;
-    } else {
-      current = next;
-    }
-  });
-
-  if (current) {
-    segments.push(current);
+  if (!normalizedPassage) {
+    return [];
   }
 
-  while (segments.length > MAX_PREP_SEGMENTS) {
-    const last = segments.pop();
-    if (!last) {
+  const sentences =
+    normalizedPassage
+      .match(/[^.!?]+[.!?]+|[^.!?]+$/g)
+      ?.map((sentence) => sentence.trim())
+      .filter(Boolean) ?? [normalizedPassage];
+
+  const desiredCount = Math.max(
+    1,
+    Math.ceil(normalizedPassage.length / TARGET_PREP_SEGMENT_LENGTH)
+  );
+  const segmentCount = Math.min(MAX_PREP_SEGMENTS, desiredCount, sentences.length);
+
+  const sentenceEnds: number[] = [];
+  let totalLength = 0;
+  sentences.forEach((sentence, index) => {
+    totalLength += sentence.length + (index > 0 ? 1 : 0);
+    sentenceEnds.push(totalLength);
+  });
+
+  const segments: string[] = [];
+  let startIndex = 0;
+
+  for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex += 1) {
+    const isLast = segmentIndex === segmentCount - 1;
+    if (isLast) {
+      segments.push(sentences.slice(startIndex).join(" "));
       break;
     }
 
-    segments[segments.length - 1] = `${segments[segments.length - 1]} ${last}`;
+    const targetEnd = Math.round(((segmentIndex + 1) * totalLength) / segmentCount);
+    const maxEndIndex = sentences.length - (segmentCount - segmentIndex - 1) - 1;
+
+    let endIndex = startIndex;
+    for (let index = startIndex; index <= maxEndIndex; index += 1) {
+      endIndex = index;
+      if (sentenceEnds[index] >= targetEnd) {
+        break;
+      }
+    }
+
+    if (endIndex > startIndex) {
+      const previousDistance = Math.abs(sentenceEnds[endIndex - 1] - targetEnd);
+      const currentDistance = Math.abs(sentenceEnds[endIndex] - targetEnd);
+      if (previousDistance < currentDistance) {
+        endIndex -= 1;
+      }
+    }
+
+    segments.push(sentences.slice(startIndex, endIndex + 1).join(" "));
+    startIndex = endIndex + 1;
   }
 
   return segments.map((text, index) => ({
@@ -1650,7 +1671,7 @@ export default function Home() {
                       <div>
                         <strong>먼저 듣고 따라 읽기</strong>
                         <p>
-                          본문을 약 150자 전후 듣기 구간으로 나누고, 긴 글도 최대 15개 구간까지만
+                          본문을 약 150자 기준으로 고르게 나누고, 긴 글도 최대 15개 구간까지만
                           표시합니다. 모든 구간을 끝까지 들으면 A+ 준비 표시가 됩니다.
                         </p>
                       </div>
