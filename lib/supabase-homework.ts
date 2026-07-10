@@ -149,8 +149,9 @@ const contentTypeToExtension: Record<string, string> = {
 };
 
 const getAudioExtension = (audio: File) => {
-  if (audio.type && contentTypeToExtension[audio.type]) {
-    return contentTypeToExtension[audio.type];
+  const normalizedType = audio.type.split(";")[0]?.trim().toLowerCase();
+  if (normalizedType && contentTypeToExtension[normalizedType]) {
+    return contentTypeToExtension[normalizedType];
   }
 
   const extension = path.extname(audio.name).replace(".", "").toLowerCase();
@@ -199,6 +200,23 @@ const mapTemplate = (row: DbRow): PassageTemplate => ({
   updatedAt: getString(row, "updated_at")
 });
 
+const parseSessionsField = (value: unknown): Assignment["sessions"] | undefined => {
+  if (Array.isArray(value)) {
+    return value as Assignment["sessions"];
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return Array.isArray(parsed) ? (parsed as Assignment["sessions"]) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
+};
+
 const mapAssignment = (row: DbRow, classById: Map<string, ClassGroup>, profileById: Map<string, DbRow>): Assignment => {
   const base = {
     id: getString(row, "id"),
@@ -215,7 +233,7 @@ const mapAssignment = (row: DbRow, classById: Map<string, ClassGroup>, profileBy
       getOptionalString(profileById.get(getString(row, "teacher_id")) ?? {}, "display_name") ?? "Teacher",
     templateId: getOptionalString(row, "template_id"),
     mode: (getOptionalString(row, "mode") as AssignmentMode | undefined) ?? undefined,
-    sessions: Array.isArray(row.sessions) ? (row.sessions as Assignment["sessions"]) : undefined
+    sessions: parseSessionsField(row.sessions)
   };
 
   return ensureAssignmentSessions(base);
@@ -588,9 +606,13 @@ export const createSupabaseSubmission = async (input: CreateSubmissionInput) => 
   }
 
   const assignment = mapAssignment(asRow(assignmentRow), new Map(), new Map());
-  const session = assignment.sessions.find((item) => item.id === sessionId);
+  const session =
+    assignment.sessions.find((item) => item.id === sessionId) ||
+    (assignment.sessions.length === 1 ? assignment.sessions[0] : undefined);
   if (!session) {
-    throw new Error("session not found");
+    throw new Error(
+      `session not found (${sessionId}). 과제 회차 정보가 없거나 오래되었을 수 있습니다. 새로고침 후 다시 시도해 주세요.`
+    );
   }
 
   let previousSubmission: Record<string, unknown> | null = null;
@@ -627,15 +649,19 @@ export const createSupabaseSubmission = async (input: CreateSubmissionInput) => 
   const extension = getAudioExtension(input.audio);
   const audioPath = `${randomUUID()}.${extension}`;
   const audioBuffer = Buffer.from(await input.audio.arrayBuffer());
+  const contentType = (input.audio.type || "audio/webm").split(";")[0]?.trim() || "audio/webm";
   const { error: uploadError } = await supabase.storage
     .from(RECORDINGS_BUCKET)
     .upload(audioPath, audioBuffer, {
-      contentType: input.audio.type || "audio/webm",
+      contentType,
       upsert: true
     });
 
   if (uploadError) {
-    throw toError(uploadError);
+    throw toError(
+      uploadError,
+      "녹음 파일 업로드에 실패했습니다. Supabase recordings 버킷과 정책을 확인해 주세요."
+    );
   }
 
   const durationSec = Math.max(Math.round(input.durationSec), 1);
@@ -678,7 +704,7 @@ export const createSupabaseSubmission = async (input: CreateSubmissionInput) => 
 
   let saved = await saveSubmission({
     ...baseSubmissionPayload,
-    session_id: sessionId
+    session_id: session.id
   });
 
   if (saved.error && isMissingColumnError(saved.error)) {

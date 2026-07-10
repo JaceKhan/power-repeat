@@ -15,11 +15,17 @@ export async function POST(request: Request) {
     }
 
     const formData = await request.formData();
-    const audio = formData.get("audio");
+    const audioValue = formData.get("audio");
 
-    if (!(audio instanceof File)) {
+    if (!(audioValue instanceof Blob) || audioValue.size === 0) {
       throw new Error("audio is required");
     }
+
+    const audio = new File(
+      [audioValue],
+      audioValue instanceof File && audioValue.name ? audioValue.name : "recording.webm",
+      { type: audioValue.type || "audio/webm" }
+    );
 
     const submission = await createSubmission({
       assignmentId: String(formData.get("assignmentId") ?? ""),
