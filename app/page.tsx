@@ -1288,8 +1288,13 @@ export default function Home() {
     });
   };
 
-  const openAssignmentStatus = () => {
-    setStatusClassFilter(form.className || "all");
+  const openAssignmentStatus = (className?: string) => {
+    const nextClass =
+      typeof className === "string" && className.trim() ? className.trim() : form.className || "all";
+    setStatusClassFilter(nextClass);
+    if (nextClass !== "all") {
+      setSelectedAchievementClassName(nextClass);
+    }
     setTeacherCategory("roster");
     window.requestAnimationFrame(() => {
       document.getElementById("assignment-status")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1644,12 +1649,29 @@ export default function Home() {
                   <>
                     <a href="#assignment-create">과제 배정하기</a>
                     <a href="#template-library">템플릿 불러오기</a>
+                    <a
+                      href="#assignment-status"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        openAssignmentStatus();
+                      }}
+                    >
+                      숙제 배정 현황
+                    </a>
                   </>
                 ) : (
                   <>
+                    <a
+                      href="#assignment-status"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        openAssignmentStatus(statusClassFilter === "all" ? undefined : statusClassFilter);
+                      }}
+                    >
+                      숙제 배정 현황
+                    </a>
                     <a href="#class-achievements">반별 성취 현황</a>
                     <a href="#student-rankings">주간/월간 순위</a>
-                    <a href="#assignment-status">과제 제출 현황</a>
                     <a href="#submission-review">녹음 제출 검토</a>
                     <a href="#roster-manage">반/학생 등록</a>
                     <a href="#roster-list">반별 학생 목록</a>
@@ -1702,7 +1724,7 @@ export default function Home() {
                     <button className="primary-button" type="button" onClick={continueAssigning}>
                       이어서 다른 본문 배정
                     </button>
-                    <button type="button" onClick={openAssignmentStatus}>
+                    <button type="button" onClick={() => openAssignmentStatus()}>
                       과제 배정 현황 보기
                     </button>
                   </div>
@@ -1809,7 +1831,16 @@ export default function Home() {
                   <div className="existing-homework-panel">
                     <div className="existing-homework-heading">
                       <strong>{form.className || "선택한 반"} 기 배정 숙제</strong>
-                      <span>{classAssignedHomework.length}개</span>
+                      <div className="button-row">
+                        <span>{classAssignedHomework.length}개</span>
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() => openAssignmentStatus(form.className)}
+                        >
+                          전체 현황
+                        </button>
+                      </div>
                     </div>
                     {classAssignedHomework.length ? (
                       <div className="existing-homework-list">
@@ -2165,11 +2196,15 @@ export default function Home() {
                         className={selectedAchievementClassName === classGroup.name ? "active" : ""}
                         key={classGroup.id}
                         type="button"
-                        onClick={() => setSelectedAchievementClassName(classGroup.name)}
+                        onClick={() => {
+                          setSelectedAchievementClassName(classGroup.name);
+                          setStatusClassFilter(classGroup.name);
+                        }}
                       >
                         <span>{classGroup.name}</span>
                         <small>
-                          {classStudents.length}명 · 제출 {classSubmissions.length}건
+                          {classStudents.length}명 · 숙제 {classAssignments.length}개 · 제출{" "}
+                          {classSubmissions.length}건
                         </small>
                       </button>
                     );
@@ -2180,6 +2215,15 @@ export default function Home() {
                 <div className="achievement-summary">
                   <strong>{selectedAchievementClassName || "반을 선택하세요"}</strong>
                   <span>{selectedClassAchievements.length}명</span>
+                  {selectedAchievementClassName ? (
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => openAssignmentStatus(selectedAchievementClassName)}
+                    >
+                      이 반 숙제 현황
+                    </button>
+                  ) : null}
                 </div>
                 {selectedClassAchievements.length ? (
                   <div className="achievement-table">
@@ -2348,11 +2392,27 @@ export default function Home() {
             <div className="roster-list" id="roster-list">
               {classes.map((classGroup) => {
                 const classStudents = students.filter((student) => student.className === classGroup.name);
+                const classHomeworkCount = assignments.filter(
+                  (assignment) => assignment.className === classGroup.name
+                ).length;
 
                 return (
                   <div className="roster-class" key={classGroup.id}>
-                    <strong>{classGroup.name}</strong>
-                    <span>{classStudents.length}명</span>
+                    <div className="roster-class-heading">
+                      <div>
+                        <strong>{classGroup.name}</strong>
+                        <span>
+                          {classStudents.length}명 · 숙제 {classHomeworkCount}개
+                        </span>
+                      </div>
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        onClick={() => openAssignmentStatus(classGroup.name)}
+                      >
+                        숙제 현황 보기
+                      </button>
+                    </div>
                     <div>
                       {classStudents.length ? (
                         classStudents.map((student) => (
@@ -2372,17 +2432,29 @@ export default function Home() {
             </div>
           </article>
 
-          <article className="panel wide teacher-roster-panel teacher-roster-status" id="assignment-status">
+          <article
+            className="panel wide teacher-roster-panel teacher-roster-status teacher-shared-panel"
+            id="assignment-status"
+          >
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Management</p>
-                <h2>과제별 제출 현황</h2>
+                <p className="eyebrow">Homework</p>
+                <h2>숙제 배정 현황</h2>
+                <p className="helper-note">
+                  반을 선택하면 기 배정된 숙제와 학생별 제출 상태를 확인할 수 있습니다.
+                </p>
               </div>
               <label className="status-class-filter">
                 반 선택
                 <select
                   value={statusClassFilter}
-                  onChange={(event) => setStatusClassFilter(event.target.value)}
+                  onChange={(event) => {
+                    const nextClass = event.target.value;
+                    setStatusClassFilter(nextClass);
+                    if (nextClass !== "all") {
+                      setSelectedAchievementClassName(nextClass);
+                    }
+                  }}
                 >
                   <option value="all">전체 반</option>
                   {classes.map((classGroup) => (
