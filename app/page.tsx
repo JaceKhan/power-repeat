@@ -284,6 +284,7 @@ export default function Home() {
   const [isSaving, setIsSaving] = useState(false);
   const [assignStep, setAssignStep] = useState<AssignStep>(1);
   const [assignSuccessTitle, setAssignSuccessTitle] = useState("");
+  const [statusClassFilter, setStatusClassFilter] = useState("all");
   const [form, setForm] = useState<AssignmentForm>(() => getInitialAssignmentForm());
   const [classForm, setClassForm] = useState({
     name: ""
@@ -445,6 +446,34 @@ export default function Home() {
     });
     return Array.from(seen.values());
   }, [classScheduledSessions]);
+
+  const classAssignedHomework = useMemo(() => {
+    return assignments
+      .filter((assignment) => assignment.className === form.className)
+      .slice()
+      .sort((left, right) => {
+        const leftDate = getSessionAssignedDate(left.sessions[0] ?? { assignedDate: left.dueDate, dueDate: left.dueDate });
+        const rightDate = getSessionAssignedDate(
+          right.sessions[0] ?? { assignedDate: right.dueDate, dueDate: right.dueDate }
+        );
+        return rightDate.localeCompare(leftDate) || right.createdAt.localeCompare(left.createdAt);
+      });
+  }, [assignments, form.className]);
+
+  const statusBoardAssignments = useMemo(() => {
+    const filtered =
+      statusClassFilter === "all"
+        ? assignments
+        : assignments.filter((assignment) => assignment.className === statusClassFilter);
+
+    return filtered.slice().sort((left, right) => {
+      const leftDate = getSessionAssignedDate(left.sessions[0] ?? { assignedDate: left.dueDate, dueDate: left.dueDate });
+      const rightDate = getSessionAssignedDate(
+        right.sessions[0] ?? { assignedDate: right.dueDate, dueDate: right.dueDate }
+      );
+      return rightDate.localeCompare(leftDate) || right.createdAt.localeCompare(left.createdAt);
+    });
+  }, [assignments, statusClassFilter]);
 
   const draftColorClass = useMemo(
     () =>
@@ -1260,6 +1289,7 @@ export default function Home() {
   };
 
   const openAssignmentStatus = () => {
+    setStatusClassFilter(form.className || "all");
     setTeacherCategory("roster");
     window.requestAnimationFrame(() => {
       document.getElementById("assignment-status")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1761,9 +1791,13 @@ export default function Home() {
                     반
                     <select
                       value={form.className}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, className: event.target.value }))
-                      }
+                      onChange={(event) => {
+                        const nextClass = event.target.value;
+                        setForm((current) => ({ ...current, className: nextClass }));
+                        if (nextClass) {
+                          setStatusClassFilter(nextClass);
+                        }
+                      }}
                     >
                       {classes.map((classGroup) => (
                         <option key={classGroup.id} value={classGroup.name}>
@@ -1772,6 +1806,54 @@ export default function Home() {
                       ))}
                     </select>
                   </label>
+                  <div className="existing-homework-panel">
+                    <div className="existing-homework-heading">
+                      <strong>{form.className || "선택한 반"} 기 배정 숙제</strong>
+                      <span>{classAssignedHomework.length}개</span>
+                    </div>
+                    {classAssignedHomework.length ? (
+                      <div className="existing-homework-list">
+                        {classAssignedHomework.map((assignment) => {
+                          const firstSession = assignment.sessions[0];
+                          const lastSession = assignment.sessions[assignment.sessions.length - 1];
+                          const colorClass = getPassageColorClass(getAssignmentColorKey(assignment));
+
+                          return (
+                            <div className="existing-homework-item" key={assignment.id}>
+                              <span className={`passage-swatch ${colorClass}`} aria-hidden="true" />
+                              <div className="existing-homework-main">
+                                <strong>{assignment.passageTitle}</strong>
+                                <small>
+                                  {assignment.bookName} / Level {assignment.level} ·{" "}
+                                  {ASSIGNMENT_MODE_LABEL[assignment.mode]} · {assignment.sessions.length}회차
+                                </small>
+                                {firstSession && lastSession ? (
+                                  <small>
+                                    {assignment.sessions.length === 1
+                                      ? formatSessionScheduleLabel(
+                                          getSessionAssignedDate(firstSession),
+                                          firstSession.dueDate
+                                        )
+                                      : `첫 배정 ${formatAssignedDateLabel(getSessionAssignedDate(firstSession))} · 최종 ~${formatAssignedDateLabel(lastSession.dueDate)}까지`}
+                                  </small>
+                                ) : null}
+                              </div>
+                              <button
+                                className="assignment-delete-button"
+                                disabled={isSaving}
+                                type="button"
+                                onClick={() => deleteAssignmentForClass(assignment)}
+                              >
+                                삭제
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="empty compact-empty">이 반에 아직 배정된 숙제가 없습니다.</p>
+                    )}
+                  </div>
                   <label>
                     배정 방식
                     <div className="mode-picker">
@@ -2296,9 +2378,24 @@ export default function Home() {
                 <p className="eyebrow">Management</p>
                 <h2>과제별 제출 현황</h2>
               </div>
+              <label className="status-class-filter">
+                반 선택
+                <select
+                  value={statusClassFilter}
+                  onChange={(event) => setStatusClassFilter(event.target.value)}
+                >
+                  <option value="all">전체 반</option>
+                  {classes.map((classGroup) => (
+                    <option key={classGroup.id} value={classGroup.name}>
+                      {classGroup.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <div className="assignment-list">
-              {assignments.map((assignment) => {
+              {statusBoardAssignments.length ? (
+                statusBoardAssignments.map((assignment) => {
                 const assignedStudents = students.filter(
                   (student) => student.className === assignment.className
                 );
@@ -2314,7 +2411,13 @@ export default function Home() {
                 return (
                   <div className="assignment-card" key={assignment.id}>
                     <div>
-                      <h3>{assignment.passageTitle}</h3>
+                      <h3>
+                        <span
+                          className={`passage-swatch ${getPassageColorClass(getAssignmentColorKey(assignment))}`}
+                          aria-hidden="true"
+                        />
+                        {assignment.passageTitle}
+                      </h3>
                       <p>
                         {assignment.bookName} / Level {assignment.level} · {assignment.className}
                       </p>
@@ -2398,7 +2501,14 @@ export default function Home() {
                     </div>
                   </div>
                 );
-              })}
+              })
+              ) : (
+                <p className="empty">
+                  {statusClassFilter === "all"
+                    ? "아직 배정된 과제가 없습니다."
+                    : `${statusClassFilter}에 배정된 과제가 없습니다.`}
+                </p>
+              )}
             </div>
           </article>
 
