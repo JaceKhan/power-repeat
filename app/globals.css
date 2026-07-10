@@ -766,6 +766,16 @@ textarea:focus {
   justify-items: end;
 }
 
+.assignment-delete-button {
+  background: var(--danger-soft);
+  border: 0;
+  border-radius: 12px;
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 900;
+  padding: 10px 12px;
+}
+
 .student-grade-list {
   border-top: 1px solid var(--line);
   display: grid;

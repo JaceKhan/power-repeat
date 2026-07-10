@@ -22,6 +22,7 @@
   - 본문 준비 → 반·마감일 → 확인 배정 3단계 배정 흐름
   - 제출률과 과제별 제출 현황 확인
   - 학생별 미제출/검토 대기/피드백 완료/재제출 상태 표시
+  - 잘못 배정했거나 불필요한 과제 삭제
   - 학생 녹음 재생
   - 점수/피드백 저장
   - 재제출 요청
@@ -110,5 +111,6 @@ npm audit --audit-level=moderate
 - 과제 생성: `POST /api/assignments`
 - 녹음 제출: `POST /api/submissions`
 - 제출 검토: `PATCH /api/submissions/[submissionId]`
+- 과제 삭제: `DELETE /api/assignments/[assignmentId]`
 
 `.data`는 개발/시연용 로컬 저장소이며 Git에는 포함하지 않습니다. 정식 운영에서는 Supabase 환경변수를 설정해 Supabase DB/Storage를 사용합니다.
