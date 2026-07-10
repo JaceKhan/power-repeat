@@ -901,9 +901,10 @@ export default function Home() {
     try {
       resetRecording();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const preferredType = "audio/webm;codecs=opus";
-      const mimeType = MediaRecorder.isTypeSupported(preferredType) ? preferredType : "audio/webm";
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const preferredTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/aac"];
+      const mimeType = preferredTypes.find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const resolvedType = recorder.mimeType || mimeType || "audio/webm";
 
       chunksRef.current = [];
       recorder.ondataavailable = (event) => {
@@ -914,14 +915,19 @@ export default function Home() {
       recorder.onstop = async () => {
         stopTimer();
         stream.getTracks().forEach((track) => track.stop());
-        const blob = new Blob(chunksRef.current, { type: mimeType });
+        const blob = new Blob(chunksRef.current, { type: resolvedType });
+        if (!blob.size) {
+          setRecordingState("idle");
+          setNotice("녹음 데이터가 비어 있습니다. 마이크 권한을 확인한 뒤 다시 녹음해 주세요.");
+          return;
+        }
         setAudioBlob(blob);
         setAudioDataUrl(await blobToDataUrl(blob));
         setRecordingState("ready");
       };
 
       recorderRef.current = recorder;
-      recorder.start();
+      recorder.start(1000);
       setRecordingState("recording");
       timerRef.current = window.setInterval(() => {
         setRecordingSec((seconds) => seconds + 1);
@@ -1094,6 +1100,11 @@ export default function Home() {
       return;
     }
 
+    if (audioBlob.size < 64) {
+      setNotice("녹음 파일이 비어 있습니다. 다시 녹음한 뒤 미리듣기로 확인해 주세요.");
+      return;
+    }
+
     const previousSubmission = submissions.find(
       (item) => item.sessionId === selectedSession.id && item.studentId === selectedStudent.id
     );
@@ -1104,6 +1115,21 @@ export default function Home() {
 
     setIsSaving(true);
     try {
+      const normalizedType = (audioBlob.type || "audio/webm").split(";")[0]?.trim() || "audio/webm";
+      const extension =
+        normalizedType === "audio/mp4" || normalizedType === "audio/aac" || normalizedType === "audio/x-m4a"
+          ? "m4a"
+          : normalizedType === "audio/mpeg"
+            ? "mp3"
+            : normalizedType === "audio/wav"
+              ? "wav"
+              : normalizedType === "audio/ogg"
+                ? "ogg"
+                : "webm";
+      const audioFile = new File([audioBlob], `reading-${selectedSession.id}.${extension}`, {
+        type: normalizedType
+      });
+
       const formData = new FormData();
       formData.append("assignmentId", selectedAssignment.id);
       formData.append("sessionId", selectedSession.id);
@@ -1111,18 +1137,23 @@ export default function Home() {
       formData.append("prepCompleted", String(prepCompleted));
       formData.append("completedPrepSegments", String(completedSegmentIds.length));
       formData.append("totalPrepSegments", String(prepSegments.length));
-      formData.append("audio", audioBlob, `reading-${selectedSession.id}.webm`);
+      formData.append("audio", audioFile);
 
       const response = await fetch("/api/submissions", {
         method: "POST",
         body: formData
       });
 
+      const payload = (await response.json().catch(() => null)) as
+        | (Submission & { error?: string })
+        | { error?: string }
+        | null;
+
       if (!response.ok) {
-        throw new Error("submission request failed");
+        throw new Error(payload && "error" in payload && payload.error ? payload.error : `제출 실패 (${response.status})`);
       }
 
-      const submission = (await response.json()) as Submission;
+      const submission = payload as Submission;
       const previousGrade = previousSubmission?.grade;
       setSubmissions((current) => [
         submission,
@@ -1141,8 +1172,13 @@ export default function Home() {
           ? " 기간 안에 다시 녹음하면 더 높은 등급을 받을 수 있습니다."
           : "";
       setNotice(`제출 완료! 등급 ${submission.grade}.${improved}${canImproveMore}`);
-    } catch {
-      setNotice("녹음 제출에 실패했습니다. 네트워크 상태를 확인하고 다시 시도해 주세요.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      setNotice(
+        message
+          ? `녹음 제출에 실패했습니다: ${message}`
+          : "녹음 제출에 실패했습니다. 네트워크 상태를 확인하고 다시 시도해 주세요."
+      );
     } finally {
       setIsSaving(false);
     }
@@ -2794,25 +2830,33 @@ export default function Home() {
                   </p>
                 </div>
               </div>
-              <label className="student-picker">
-                학생 선택
-                <select
-                  value={selectedStudentId}
-                  onChange={(event) => {
-                    setSelectedStudentId(event.target.value);
-                    setSelectedSessionId("");
-                    setSelectedCalendarDate("");
-                    setStudentView("calendar");
-                    resetRecording();
-                  }}
-                >
-                  {students.map((student) => (
-                    <option key={student.id} value={student.id}>
-                      {student.name} - {student.className}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="student-identity">
+                <span className="eyebrow">Student</span>
+                <strong>
+                  {selectedStudent?.name} · {selectedStudent?.className}
+                </strong>
+              </div>
+              {students.length > 1 ? (
+                <label className="student-picker">
+                  학생 선택
+                  <select
+                    value={selectedStudentId}
+                    onChange={(event) => {
+                      setSelectedStudentId(event.target.value);
+                      setSelectedSessionId("");
+                      setSelectedCalendarDate("");
+                      setStudentView("calendar");
+                      resetRecording();
+                    }}
+                  >
+                    {students.map((student) => (
+                      <option key={student.id} value={student.id}>
+                        {student.name} - {student.className}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <div className="homework-calendar student-homework-calendar">
                 <p className="calendar-guidance">
                   배정된 요일에 하는 것이 원칙이며, 그 주 일요일까지 완료하면 됩니다.
