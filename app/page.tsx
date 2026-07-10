@@ -79,51 +79,149 @@ const blobToDataUrl = (blob: Blob) =>
     reader.readAsDataURL(blob);
   });
 
+const COMMON_ABBREVIATIONS = new Set([
+  "mr",
+  "mrs",
+  "ms",
+  "dr",
+  "prof",
+  "sr",
+  "jr",
+  "vs",
+  "etc",
+  "st",
+  "mt",
+  "ft",
+  "dept",
+  "est",
+  "approx"
+]);
+
+const splitPassageIntoSentences = (passage: string): string[] => {
+  const sentences: string[] = [];
+  let current = "";
+
+  for (let index = 0; index < passage.length; index += 1) {
+    const character = passage[index];
+    current += character;
+
+    if (character !== "." && character !== "!" && character !== "?") {
+      continue;
+    }
+
+    const trimmed = current.trim();
+    const initialMatch = trimmed.match(/\b[A-Za-z]\.$/);
+    if (initialMatch) {
+      continue;
+    }
+
+    const abbreviationMatch = trimmed.match(/\b([A-Za-z]+)\.$/);
+    if (
+      abbreviationMatch &&
+      COMMON_ABBREVIATIONS.has(abbreviationMatch[1].toLowerCase())
+    ) {
+      continue;
+    }
+
+    let nextIndex = index + 1;
+    while (nextIndex < passage.length && passage[nextIndex] === " ") {
+      nextIndex += 1;
+    }
+
+    const nextCharacter = passage[nextIndex];
+    const isBoundary =
+      nextIndex >= passage.length || /[A-Z"'“‘(]/.test(nextCharacter ?? "");
+
+    if (!isBoundary) {
+      continue;
+    }
+
+    sentences.push(trimmed);
+    current = "";
+    index = nextIndex - 1;
+  }
+
+  if (current.trim()) {
+    sentences.push(current.trim());
+  }
+
+  return sentences.length > 0 ? sentences : [passage];
+};
+
+const splitLongSentenceIntoUnits = (sentence: string, maxLength: number): string[] => {
+  if (sentence.length <= maxLength) {
+    return [sentence];
+  }
+
+  const clausePieces =
+    sentence
+      .split(/(?<=[,:;])\s+/)
+      .map((piece) => piece.trim())
+      .filter(Boolean) ?? [sentence];
+
+  const units: string[] = [];
+  let current = "";
+
+  const pushCurrent = () => {
+    if (current) {
+      units.push(current);
+      current = "";
+    }
+  };
+
+  clausePieces.forEach((piece) => {
+    if (piece.length > maxLength) {
+      pushCurrent();
+      const words = piece.split(" ").filter(Boolean);
+      let wordChunk = "";
+      words.forEach((word) => {
+        const next = wordChunk ? `${wordChunk} ${word}` : word;
+        if (wordChunk && next.length > maxLength) {
+          units.push(wordChunk);
+          wordChunk = word;
+        } else {
+          wordChunk = next;
+        }
+      });
+      if (wordChunk) {
+        units.push(wordChunk);
+      }
+      return;
+    }
+
+    const next = current ? `${current} ${piece}` : piece;
+    if (current && next.length > maxLength) {
+      pushCurrent();
+      current = piece;
+    } else {
+      current = next;
+    }
+  });
+
+  pushCurrent();
+  return units.length > 0 ? units : [sentence];
+};
+
 const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
   const normalizedPassage = passage.replace(/\s+/g, " ").trim();
   if (!normalizedPassage) {
     return [];
   }
 
-  const sentences =
-    normalizedPassage
-      .match(/[^.!?]+[.!?]+|[^.!?]+$/g)
-      ?.map((sentence) => sentence.trim())
-      .filter(Boolean) ?? [normalizedPassage];
-
-  const units: string[] = [];
-  sentences.forEach((sentence) => {
-    if (sentence.length <= TARGET_PREP_SEGMENT_LENGTH) {
-      units.push(sentence);
-      return;
-    }
-
-    const words = sentence.split(" ").filter(Boolean);
-    let currentWords: string[] = [];
-    let currentLength = 0;
-
-    words.forEach((word) => {
-      const nextLength = currentLength === 0 ? word.length : currentLength + 1 + word.length;
-      if (currentLength > 0 && nextLength > TARGET_PREP_SEGMENT_LENGTH) {
-        units.push(currentWords.join(" "));
-        currentWords = [word];
-        currentLength = word.length;
-      } else {
-        currentWords.push(word);
-        currentLength = nextLength;
-      }
-    });
-
-    if (currentWords.length > 0) {
-      units.push(currentWords.join(" "));
-    }
-  });
-
-  const totalLength = units.join(" ").length;
+  const sentences = splitPassageIntoSentences(normalizedPassage);
+  const totalLength = normalizedPassage.length;
   const segmentCount = Math.min(
     MAX_PREP_SEGMENTS,
     Math.max(1, Math.ceil(totalLength / TARGET_PREP_SEGMENT_LENGTH)),
-    units.length
+    Math.max(1, sentences.length)
+  );
+  const softMaxLength = Math.max(
+    TARGET_PREP_SEGMENT_LENGTH,
+    Math.ceil(totalLength / segmentCount) + 40
+  );
+
+  const units = sentences.flatMap((sentence) =>
+    splitLongSentenceIntoUnits(sentence, softMaxLength)
   );
 
   const segments: string[] = [];
@@ -150,15 +248,12 @@ const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
 
       const unit = units[unitIndex];
       const nextLength = segmentLength === 0 ? unit.length : segmentLength + 1 + unit.length;
+
       if (parts.length > 0 && segmentLength >= targetLength && unitsAfterTake >= segmentsAfter) {
         break;
       }
 
-      if (
-        parts.length > 0 &&
-        nextLength > targetLength &&
-        unitsAfterTake >= segmentsAfter
-      ) {
+      if (parts.length > 0 && nextLength > targetLength && unitsAfterTake >= segmentsAfter) {
         const overshoot = nextLength - targetLength;
         const undershoot = targetLength - segmentLength;
         if (overshoot >= undershoot) {
@@ -173,6 +268,11 @@ const splitPassageIntoPrepSegments = (passage: string): PrepSegment[] => {
       if (segmentLength >= targetLength && units.length - unitIndex >= segmentsAfter) {
         break;
       }
+    }
+
+    if (parts.length === 0 && unitIndex < units.length) {
+      parts.push(units[unitIndex]);
+      unitIndex += 1;
     }
 
     segments.push(parts.join(" "));
