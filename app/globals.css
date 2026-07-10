@@ -1236,6 +1236,10 @@ textarea:focus {
   margin-bottom: 4px;
 }
 
+.assign-steps-four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .assign-steps button {
   align-items: start;
   background: #f8fafc;
@@ -1302,6 +1306,67 @@ textarea:focus {
 .assign-passage-editor--confirm {
   min-height: 180px;
   width: 100%;
+}
+
+.assign-passage-step,
+.assign-passage-panel,
+.assign-template-inline {
+  display: grid;
+  gap: 12px;
+}
+
+.assign-passage-panel {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 18px;
+  padding: 16px;
+}
+
+.assign-passage-panel-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.assign-passage-panel-heading h3 {
+  font-size: 20px;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+
+.assign-passage-panel-heading span {
+  color: #92400e;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.assign-passage-mini {
+  align-items: start;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px;
+}
+
+.assign-passage-mini p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+}
+
+.assign-template-inline {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 14px;
+}
+
+.compact-template-list {
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
 }
 
 .existing-homework-panel {

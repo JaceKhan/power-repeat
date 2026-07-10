@@ -32,7 +32,7 @@ type AuthenticatedHomeworkState = HomeworkState & {
   currentUser: SessionUser;
 };
 type HomeworkStatusKey = "pending" | "submitted" | "reviewed" | "resubmit";
-type AssignStep = 1 | 2 | 3;
+type AssignStep = 1 | 2 | 3 | 4;
 type AssignmentForm = {
   bookName: string;
   level: number;
@@ -1339,22 +1339,22 @@ export default function Home() {
 
   const createAssignment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (assignStep !== 3) {
+    if (assignStep !== 4) {
       return;
     }
     if (!form.bookName.trim() || !form.passageTitle.trim() || !form.passage.trim()) {
       setNotice("책이름, 본문제목, 본문은 필수입니다.");
-      setAssignStep(1);
+      setAssignStep(form.passage.trim() ? 1 : 2);
       return;
     }
     if (!form.className.trim()) {
       setNotice("배정할 반을 선택해 주세요.");
-      setAssignStep(2);
+      setAssignStep(3);
       return;
     }
     if (!form.sessionDrafts.length || form.sessionDrafts.some((session) => !session.assignedDate)) {
       setNotice("달력에서 배정할 요일을 하나 이상 선택해 주세요.");
-      setAssignStep(2);
+      setAssignStep(3);
       return;
     }
 
@@ -1437,19 +1437,24 @@ export default function Home() {
   };
 
   const goToAssignStep = (step: AssignStep) => {
-    if (step > 1 && (!form.bookName.trim() || !form.passageTitle.trim() || !form.passage.trim())) {
-      setNotice("1단계에서 책이름, 본문제목, 본문을 먼저 입력해 주세요.");
+    if (step > 1 && (!form.bookName.trim() || !form.passageTitle.trim())) {
+      setNotice("1단계에서 책이름과 본문제목을 먼저 입력해 주세요.");
       setAssignStep(1);
       return;
     }
+    if (step > 2 && !form.passage.trim()) {
+      setNotice("2단계에서 학생이 읽을 본문을 입력하거나 편집해 주세요.");
+      setAssignStep(2);
+      return;
+    }
     if (
-      step > 2 &&
+      step > 3 &&
       (!form.className.trim() ||
         !form.sessionDrafts.length ||
         form.sessionDrafts.some((session) => !session.assignedDate))
     ) {
-      setNotice("2단계에서 반을 선택하고 달력에서 배정할 요일을 하나 이상 선택해 주세요.");
-      setAssignStep(2);
+      setNotice("3단계에서 반을 선택하고 달력에서 배정할 요일을 하나 이상 선택해 주세요.");
+      setAssignStep(3);
       return;
     }
     setAssignStep(step);
@@ -1474,14 +1479,18 @@ export default function Home() {
           : []
       };
     });
-    setAssignStep(1);
+    setAssignStep(2);
     setTeacherCategory("content");
     setNotice(
-      "템플릿을 불러왔습니다. 아래에서 본문을 확인·편집한 뒤(뺄 문장 삭제 등) 다음 단계로 진행하세요."
+      template.passage.trim()
+        ? `"${template.passageTitle}" 본문을 불러왔습니다. 아래에서 뺄 문장을 편집한 뒤 다음으로 진행하세요.`
+        : `"${template.passageTitle}" 템플릿에 본문이 비어 있습니다. 아래에 본문을 입력해 주세요.`
     );
     window.requestAnimationFrame(() => {
-      document.getElementById("assignment-create")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      document.getElementById("assign-passage-editor")?.focus();
+      document.getElementById("assign-passage-step")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.setTimeout(() => {
+        document.getElementById("assign-passage-editor")?.focus();
+      }, 120);
     });
   };
 
@@ -1823,16 +1832,16 @@ export default function Home() {
                 <p className="eyebrow">Teacher</p>
                 <h2>리딩 과제 배정</h2>
               </div>
-              <span className="badge">1→2→3 배정</span>
+              <span className="badge">1→2→3→4 배정</span>
             </div>
-            <div className="assign-steps" aria-label="과제 배정 단계">
+            <div className="assign-steps assign-steps-four" aria-label="과제 배정 단계">
               <button
                 className={assignStep === 1 ? "active" : ""}
                 type="button"
                 onClick={() => goToAssignStep(1)}
               >
                 <strong>1</strong>
-                <span>본문 준비</span>
+                <span>본문 선택</span>
               </button>
               <button
                 className={assignStep === 2 ? "active" : ""}
@@ -1840,7 +1849,7 @@ export default function Home() {
                 onClick={() => goToAssignStep(2)}
               >
                 <strong>2</strong>
-                <span>반·배정일</span>
+                <span>본문 편집</span>
               </button>
               <button
                 className={assignStep === 3 ? "active" : ""}
@@ -1848,6 +1857,14 @@ export default function Home() {
                 onClick={() => goToAssignStep(3)}
               >
                 <strong>3</strong>
+                <span>반·배정일</span>
+              </button>
+              <button
+                className={assignStep === 4 ? "active" : ""}
+                type="button"
+                onClick={() => goToAssignStep(4)}
+              >
+                <strong>4</strong>
                 <span>확인 배정</span>
               </button>
             </div>
@@ -1871,8 +1888,7 @@ export default function Home() {
               {assignStep === 1 ? (
                 <>
                   <p className="assign-step-copy">
-                    배정할 리딩 본문을 입력하거나 오른쪽 템플릿에서 불러오세요. 불러온 뒤에도 여기서
-                    문장을 빼거나 고칠 수 있습니다.
+                    책·레벨·본문제목을 정하거나 템플릿을 불러오세요. 다음 단계가 본문 편집입니다.
                   </p>
                   <label>
                     책이름
@@ -1907,23 +1923,6 @@ export default function Home() {
                       placeholder="예: The Great White"
                     />
                   </label>
-                  <label className="assign-passage-label">
-                    학생이 읽을 본문
-                    <span className="assign-passage-hint">
-                      필요 없는 문장은 여기서 지운 뒤 배정하세요. 현재 {form.passage.trim().length}자 ·
-                      듣기 구간 {formPrepSegments.length}개
-                    </span>
-                    <textarea
-                      id="assign-passage-editor"
-                      className="assign-passage-editor"
-                      value={form.passage}
-                      onChange={(event) =>
-                        updateAssignmentForm({ passage: event.target.value }, { resetRanges: true })
-                      }
-                      placeholder="학생들이 녹음해야 할 영어 본문을 입력하세요. 템플릿을 불러오면 여기에 내용이 채워집니다."
-                      rows={14}
-                    />
-                  </label>
                   <label>
                     제출 안내
                     <textarea
@@ -1934,15 +1933,93 @@ export default function Home() {
                       rows={3}
                     />
                   </label>
+                  <div className="assign-template-inline">
+                    <div className="assign-passage-panel-heading">
+                      <h3>템플릿에서 불러오기</h3>
+                      <span>선택하면 바로 2. 본문 편집으로 이동합니다.</span>
+                    </div>
+                    <div className="template-list compact-template-list">
+                      {filteredTemplates.length ? (
+                        filteredTemplates.slice(0, 8).map((template) => (
+                          <button
+                            className="template-card"
+                            key={template.id}
+                            type="button"
+                            onClick={() => loadTemplateIntoForm(template)}
+                          >
+                            <strong>{template.passageTitle}</strong>
+                            <span>
+                              {template.bookName} / Level {template.level}
+                            </span>
+                            <small>
+                              {template.passage.trim()
+                                ? `${template.passage.trim().slice(0, 80)}${
+                                    template.passage.trim().length > 80 ? "…" : ""
+                                  }`
+                                : "본문 없음"}
+                            </small>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="empty compact-empty">
+                          저장된 템플릿이 없습니다. 제목만 입력하고 다음에서 본문을 직접 적어 주세요.
+                        </p>
+                      )}
+                    </div>
+                  </div>
                   <div className="button-row">
                     <button className="primary-button" type="button" onClick={() => goToAssignStep(2)}>
-                      다음: 반·배정일
+                      다음: 본문 편집
                     </button>
                   </div>
                 </>
               ) : null}
 
               {assignStep === 2 ? (
+                <div className="assign-passage-step" id="assign-passage-step">
+                  <p className="assign-step-copy">
+                    학생이 읽을 본문입니다. 필요 없는 문장은 여기서 지운 뒤 배정하세요.
+                  </p>
+                  <div className="assign-summary">
+                    <strong>
+                      {form.bookName} / Level {form.level} / {form.passageTitle || "본문제목 없음"}
+                    </strong>
+                    <span>
+                      {form.passage.trim().length}자 · 듣기 구간 {formPrepSegments.length}개
+                    </span>
+                  </div>
+                  <div className="assign-passage-panel">
+                    <div className="assign-passage-panel-heading">
+                      <h3>본문 편집</h3>
+                      <span>
+                        {form.passage.trim()
+                          ? "아래에서 문장을 삭제·수정할 수 있습니다."
+                          : "본문이 비어 있습니다. 직접 입력해 주세요."}
+                      </span>
+                    </div>
+                    <textarea
+                      id="assign-passage-editor"
+                      className="assign-passage-editor"
+                      value={form.passage}
+                      onChange={(event) =>
+                        updateAssignmentForm({ passage: event.target.value }, { resetRanges: true })
+                      }
+                      placeholder="학생들이 녹음해야 할 영어 본문을 입력하세요."
+                      rows={16}
+                    />
+                  </div>
+                  <div className="button-row">
+                    <button type="button" onClick={() => goToAssignStep(1)}>
+                      이전
+                    </button>
+                    <button className="primary-button" type="button" onClick={() => goToAssignStep(3)}>
+                      다음: 반·배정일
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {assignStep === 3 ? (
                 <>
                   <p className="assign-step-copy">
                     달력에서 배정할 요일을 클릭하세요. 학생은 그날 하는 것이 원칙이고, 그 주
@@ -1956,20 +2033,19 @@ export default function Home() {
                       본문 {form.passage.trim().length}자 · 준비 구간 {formPrepSegments.length}개
                     </span>
                   </div>
-                  <label className="assign-passage-label">
-                    본문 확인·편집
-                    <span className="assign-passage-hint">
-                      배정 전에 뺄 문장이 있으면 여기서 지울 수 있습니다.
-                    </span>
-                    <textarea
-                      className="assign-passage-editor"
-                      value={form.passage}
-                      onChange={(event) =>
-                        updateAssignmentForm({ passage: event.target.value }, { resetRanges: true })
-                      }
-                      rows={10}
-                    />
-                  </label>
+                  <div className="assign-passage-mini">
+                    <div>
+                      <strong>본문</strong>
+                      <p>
+                        {form.passage.trim()
+                          ? `${form.passage.trim().slice(0, 140)}${form.passage.trim().length > 140 ? "…" : ""}`
+                          : "본문이 없습니다."}
+                      </p>
+                    </div>
+                    <button type="button" className="ghost-button" onClick={() => goToAssignStep(2)}>
+                      본문 편집으로
+                    </button>
+                  </div>
                   <label>
                     반
                     <select
@@ -2184,17 +2260,18 @@ export default function Home() {
                     )}
                   </div>
                   <div className="button-row">
-                    <button type="button" onClick={() => goToAssignStep(1)}>
+                    <button type="button" onClick={() => goToAssignStep(2)}>
                       이전
                     </button>
-                    <button className="primary-button" type="button" onClick={() => goToAssignStep(3)}>
+                    <button className="primary-button" type="button" onClick={() => goToAssignStep(4)}>
                       다음: 확인 배정
                     </button>
                   </div>
                 </>
               ) : null}
 
-              {assignStep === 3 ? (
+
+              {assignStep === 4 ? (
                 <>
                   <p className="assign-step-copy">아래 내용으로 반에 과제를 배정합니다. 템플릿도 함께 저장됩니다.</p>
                   <div className="assign-confirm">
@@ -2247,7 +2324,7 @@ export default function Home() {
                     </div>
                   </div>
                   <div className="button-row">
-                    <button type="button" onClick={() => goToAssignStep(2)}>
+                    <button type="button" onClick={() => goToAssignStep(3)}>
                       이전
                     </button>
                     <button className="primary-button" disabled={isSaving} type="submit">
@@ -2256,6 +2333,7 @@ export default function Home() {
                   </div>
                 </>
               ) : null}
+
             </form>
           </article>
 
