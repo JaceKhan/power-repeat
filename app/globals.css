@@ -1236,6 +1236,10 @@ textarea:focus {
   margin-bottom: 4px;
 }
 
+.assign-steps-four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .assign-steps button {
   align-items: start;
   background: #f8fafc;
