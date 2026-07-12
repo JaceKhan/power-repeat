@@ -83,7 +83,7 @@ npm run dev
 | 역할 | 이메일 | 비밀번호 |
 | --- | --- | --- |
 | 수퍼관리자 | `admin@powerrepeat.test` 또는 `금혜연` | `jace3000khan!!` |
-| 선생님 | `teacher@powerrepeat.test` | `teacher123` |
+| 선생님 | `jacekhanteachers` | `teacher123` |
 | 학생 | 이름 `김민준` | 코드 `1234` |
 | 학생 | 이름 `박지우` | 코드 `3456` |
 
