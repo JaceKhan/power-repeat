@@ -369,8 +369,8 @@ export default function Home() {
     email: ""
   });
   const [loginForm, setLoginForm] = useState({
-    email: "",
-    password: ""
+    email: "teacher@powerrepeat.test",
+    password: "teacher123"
   });
   const [studentLoginForm, setStudentLoginForm] = useState({
     studentName: "",
@@ -1059,6 +1059,13 @@ export default function Home() {
 
   const login = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const email = loginForm.email.trim();
+    const password = loginForm.password;
+    if (!email || !password) {
+      setNotice("선생님 이메일과 비밀번호를 입력해 주세요.");
+      return;
+    }
+
     setIsSaving(true);
     try {
       const response = await fetch("/api/auth/login", {
@@ -1066,7 +1073,7 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(loginForm)
+        body: JSON.stringify({ email, password })
       });
 
       if (!response.ok) {
@@ -1772,13 +1779,14 @@ export default function Home() {
                 <h3>선생님 로그인</h3>
               </div>
               <label>
-                이메일
+                이메일 또는 이름
                 <input
                   autoComplete="username"
                   value={loginForm.email}
                   onChange={(event) =>
                     setLoginForm((current) => ({ ...current, email: event.target.value }))
                   }
+                  placeholder="teacher@powerrepeat.test"
                 />
               </label>
               <label>
@@ -1790,11 +1798,16 @@ export default function Home() {
                   onChange={(event) =>
                     setLoginForm((current) => ({ ...current, password: event.target.value }))
                   }
+                  placeholder="비밀번호"
                 />
               </label>
               <button className="primary-button" disabled={isSaving} type="submit">
                 {isSaving ? "로그인 중..." : "선생님 로그인"}
               </button>
+              <small>
+                데모 선생님 계정이 미리 채워져 있습니다. 바로 로그인하거나 다른 선생님 계정으로
+                바꿔 입력하세요.
+              </small>
             </form>
           </div>
         </section>
