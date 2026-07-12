@@ -369,8 +369,8 @@ export default function Home() {
     email: ""
   });
   const [loginForm, setLoginForm] = useState({
-    email: "",
-    password: ""
+    email: "jacekhanteachers",
+    password: "teacher123"
   });
   const [studentLoginForm, setStudentLoginForm] = useState({
     studentName: "",
@@ -1059,6 +1059,13 @@ export default function Home() {
 
   const login = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const email = loginForm.email.trim();
+    const password = loginForm.password;
+    if (!email || !password) {
+      setNotice("선생님 아이디와 비밀번호를 입력해 주세요.");
+      return;
+    }
+
     setIsSaving(true);
     try {
       const response = await fetch("/api/auth/login", {
@@ -1066,7 +1073,7 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(loginForm)
+        body: JSON.stringify({ email, password })
       });
 
       if (!response.ok) {
@@ -1076,7 +1083,7 @@ export default function Home() {
       await loadState();
       setNotice("로그인되었습니다.");
     } catch {
-      setNotice("로그인에 실패했습니다. 이메일과 비밀번호를 확인해 주세요.");
+      setNotice("로그인에 실패했습니다. 아이디와 비밀번호를 확인해 주세요.");
     } finally {
       setIsSaving(false);
     }
@@ -1724,7 +1731,7 @@ export default function Home() {
             <p className="eyebrow">Login</p>
             <h2>로그인</h2>
             <p>
-              학생은 이름과 4자리 코드로 간편하게 들어가고, 선생님은 이메일과 비밀번호로
+              학생은 이름과 4자리 코드로 간편하게 들어가고, 선생님은 아이디와 비밀번호로
               로그인합니다.
             </p>
           </div>
@@ -1772,13 +1779,14 @@ export default function Home() {
                 <h3>선생님 로그인</h3>
               </div>
               <label>
-                이메일
+                아이디
                 <input
                   autoComplete="username"
                   value={loginForm.email}
                   onChange={(event) =>
                     setLoginForm((current) => ({ ...current, email: event.target.value }))
                   }
+                  placeholder="jacekhanteachers"
                 />
               </label>
               <label>
@@ -1790,11 +1798,15 @@ export default function Home() {
                   onChange={(event) =>
                     setLoginForm((current) => ({ ...current, password: event.target.value }))
                   }
+                  placeholder="비밀번호"
                 />
               </label>
               <button className="primary-button" disabled={isSaving} type="submit">
                 {isSaving ? "로그인 중..." : "선생님 로그인"}
               </button>
+              <small>
+                선생님 아이디가 미리 채워져 있습니다. 바로 로그인하세요.
+              </small>
             </form>
           </div>
         </section>

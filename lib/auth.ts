@@ -38,7 +38,7 @@ const teacherUsers: DemoUser[] = [
   },
   {
     id: "u-teacher-1",
-    email: "teacher@powerrepeat.test",
+    email: "jacekhanteachers",
     password: "teacher123",
     name: "Jamie Teacher",
     role: "teacher"
