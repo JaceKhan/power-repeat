@@ -103,39 +103,73 @@ const getGradeClassName = (grade: Submission["grade"] | "F") =>
           : "grade-f"
   }`;
 
+type CalendarDayTone = "none" | "pending" | "resubmit" | "B" | "A" | "A+";
+
+type CalendarDayBlock = {
+  sessionId: string;
+  item: VisibleSession;
+  tone: CalendarDayTone;
+  title: string;
+};
+
 const gradeRank: Record<Submission["grade"], number> = {
   B: 1,
   A: 2,
   "A+": 3
 };
 
+const MAX_CALENDAR_DAY_BLOCKS = 3;
+
+const toToneClassName = (tone: CalendarDayTone) => (tone === "A+" ? "aplus" : tone);
+
+const getSessionCalendarTone = (
+  item: VisibleSession,
+  submissions: Submission[],
+  studentId?: string
+): CalendarDayTone => {
+  if (!studentId) {
+    return "none";
+  }
+
+  const submission = submissions.find(
+    (entry) => entry.sessionId === item.session.id && entry.studentId === studentId
+  );
+
+  if (!submission) {
+    return "pending";
+  }
+
+  if (submission.status === "resubmit") {
+    return "resubmit";
+  }
+
+  if (submission.grade) {
+    return submission.grade;
+  }
+
+  return "pending";
+};
+
 const getCalendarDayTone = (
   daySessions: VisibleSession[],
   submissions: Submission[],
   studentId?: string
-): "none" | "pending" | "resubmit" | "B" | "A" | "A+" => {
+): CalendarDayTone => {
   if (!daySessions.length || !studentId) {
     return "none";
   }
 
-  const daySubmissions = daySessions.map((item) =>
-    submissions.find(
-      (submission) => submission.sessionId === item.session.id && submission.studentId === studentId
-    )
-  );
+  const tones = daySessions.map((item) => getSessionCalendarTone(item, submissions, studentId));
 
-  if (daySubmissions.some((submission) => submission?.status === "resubmit")) {
+  if (tones.some((tone) => tone === "resubmit")) {
     return "resubmit";
   }
 
-  if (daySubmissions.some((submission) => !submission)) {
+  if (tones.some((tone) => tone === "pending" || tone === "none")) {
     return "pending";
   }
 
-  const grades = daySubmissions
-    .map((submission) => submission?.grade)
-    .filter((grade): grade is Submission["grade"] => Boolean(grade));
-
+  const grades = tones.filter((tone): tone is Submission["grade"] => tone === "A+" || tone === "A" || tone === "B");
   if (!grades.length) {
     return "pending";
   }
@@ -555,6 +589,12 @@ export default function Home() {
       date.setDate(gridStart.getDate() + index);
       const dateString = toDateInputValue(date);
       const daySessions = sessionsByDate.get(dateString) ?? [];
+      const blocks: CalendarDayBlock[] = daySessions.slice(0, MAX_CALENDAR_DAY_BLOCKS).map((item) => ({
+        sessionId: item.session.id,
+        item,
+        tone: getSessionCalendarTone(item, submissions, selectedStudent?.id),
+        title: item.assignment.passageTitle
+      }));
       const colorIndexes = Array.from(
         new Set(
           daySessions.map((item) => getPassageColorIndex(getAssignmentColorKey(item.assignment)))
@@ -565,6 +605,7 @@ export default function Home() {
         dateString,
         isCurrentMonth: date.getMonth() === monthStartDate.getMonth(),
         sessionCount: daySessions.length,
+        blocks,
         colorIndexes,
         tone: getCalendarDayTone(daySessions, submissions, selectedStudent?.id)
       };
@@ -1317,8 +1358,18 @@ export default function Home() {
       return;
     }
 
+    if (daySessions.length > 1) {
+      setSelectedCalendarDate((current) => (current === dateString ? "" : dateString));
+      return;
+    }
+
     setSelectedCalendarDate(dateString);
     openHomeworkRecord(daySessions[0]);
+  };
+
+  const openCalendarHomeworkBlock = (dateString: string, item: VisibleSession) => {
+    setSelectedCalendarDate(dateString);
+    openHomeworkRecord(item);
   };
 
   const moveCalendarMonth = (monthOffset: number) => {
@@ -2952,7 +3003,8 @@ export default function Home() {
               ) : null}
               <div className="homework-calendar student-homework-calendar">
                 <p className="calendar-guidance">
-                  배정된 요일에 하는 것이 원칙이며, 그 주 일요일까지 완료하면 됩니다.
+                  배정된 요일에 하는 것이 원칙이며, 그 주 일요일까지 완료하면 됩니다. 같은 날 숙제가
+                  여러 개면 칸이 나뉘고, 색 블록을 누르면 해당 숙제로 이동합니다.
                 </p>
                 <div className="calendar-header">
                   <button type="button" onClick={() => moveCalendarMonth(-1)}>
@@ -2969,34 +3021,79 @@ export default function Home() {
                       {label}
                     </span>
                   ))}
-                  {calendarDays.map((day) => (
-                    <button
-                      className={[
-                        "calendar-day",
-                        day.sessionCount ? "has-homework" : "",
-                        day.tone !== "none" ? `tone-${day.tone === "A+" ? "aplus" : day.tone}` : "",
-                        selectedCalendarDate === day.dateString ? "selected" : "",
-                        todayDateString === day.dateString ? "today" : "",
-                        day.isCurrentMonth ? "" : "muted"
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                      key={day.dateString}
-                      type="button"
-                      onClick={() => selectCalendarDate(day.dateString)}
-                    >
-                      <span>{day.date.getDate()}</span>
-                      {day.tone === "A+" || day.tone === "A" || day.tone === "B" ? (
-                        <strong className="day-grade-label">{day.tone}</strong>
-                      ) : day.colorIndexes.length ? (
-                        <span className="color-dots" aria-hidden="true">
-                          {day.colorIndexes.map((colorIndex) => (
-                            <i className={`color-dot passage-color-${colorIndex}`} key={colorIndex} />
-                          ))}
-                        </span>
-                      ) : null}
-                    </button>
-                  ))}
+                  {calendarDays.map((day) => {
+                    const isSplitDay = day.blocks.length > 1;
+                    const dayClassName = [
+                      "calendar-day",
+                      day.sessionCount ? "has-homework" : "",
+                      isSplitDay ? "split-homework" : "",
+                      !isSplitDay && day.tone !== "none" ? `tone-${toToneClassName(day.tone)}` : "",
+                      selectedCalendarDate === day.dateString ? "selected" : "",
+                      todayDateString === day.dateString ? "today" : "",
+                      day.isCurrentMonth ? "" : "muted"
+                    ]
+                      .filter(Boolean)
+                      .join(" ");
+
+                    if (isSplitDay) {
+                      return (
+                        <div className={dayClassName} key={day.dateString}>
+                          <button
+                            className="calendar-day-date"
+                            type="button"
+                            onClick={() => selectCalendarDate(day.dateString)}
+                          >
+                            {day.date.getDate()}
+                          </button>
+                          <div className="day-homework-blocks" data-count={day.blocks.length}>
+                            {day.blocks.map((block) => (
+                              <button
+                                className={`day-homework-block tone-${toToneClassName(block.tone)}`}
+                                key={block.sessionId}
+                                type="button"
+                                title={block.title}
+                                aria-label={`${block.title} ${
+                                  block.tone === "A+" || block.tone === "A" || block.tone === "B"
+                                    ? block.tone
+                                    : block.tone === "resubmit"
+                                      ? "재제출"
+                                      : "미제출"
+                                }`}
+                                onClick={() => openCalendarHomeworkBlock(day.dateString, block.item)}
+                              >
+                                {block.tone === "A+" || block.tone === "A" || block.tone === "B" ? (
+                                  <strong>{block.tone}</strong>
+                                ) : null}
+                              </button>
+                            ))}
+                          </div>
+                          {day.sessionCount > MAX_CALENDAR_DAY_BLOCKS ? (
+                            <small className="day-homework-more">+{day.sessionCount - MAX_CALENDAR_DAY_BLOCKS}</small>
+                          ) : null}
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <button
+                        className={dayClassName}
+                        key={day.dateString}
+                        type="button"
+                        onClick={() => selectCalendarDate(day.dateString)}
+                      >
+                        <span>{day.date.getDate()}</span>
+                        {day.tone === "A+" || day.tone === "A" || day.tone === "B" ? (
+                          <strong className="day-grade-label">{day.tone}</strong>
+                        ) : day.colorIndexes.length ? (
+                          <span className="color-dots" aria-hidden="true">
+                            {day.colorIndexes.map((colorIndex) => (
+                              <i className={`color-dot passage-color-${colorIndex}`} key={colorIndex} />
+                            ))}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
                 </div>
                 <div className="homework-summary">
                   <span>남은 숙제 {homeworkSummary.remaining}</span>
