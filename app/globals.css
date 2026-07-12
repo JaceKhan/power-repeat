@@ -399,26 +399,28 @@ audio {
 .day-homework-blocks {
   display: flex;
   flex: 1;
+  flex-direction: column;
   gap: 3px;
-  min-height: 28px;
+  min-height: 44px;
   width: 100%;
 }
 
 .day-homework-block {
   align-items: center;
   border: 0;
-  border-radius: 10px;
+  border-radius: 7px;
   color: inherit;
   cursor: pointer;
   display: inline-flex;
   flex: 1;
   justify-content: center;
+  min-height: 12px;
   min-width: 0;
-  padding: 2px;
+  padding: 1px 2px;
 }
 
 .day-homework-block strong {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 900;
   letter-spacing: -0.03em;
   line-height: 1;
@@ -2123,11 +2125,11 @@ textarea:focus {
   }
 
   .student-calendar-grid .calendar-day.split-homework {
-    min-height: 68px;
+    min-height: 72px;
   }
 
   .day-homework-block strong {
-    font-size: 10px;
+    font-size: 9px;
   }
 
   .student-passage-box {
