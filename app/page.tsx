@@ -1673,11 +1673,12 @@ export default function Home() {
     <main className="app-shell">
       <section className="hero">
         <div>
-          <p className="eyebrow">Power Repeat MVP</p>
-          <h1>리딩 숙제 녹음 제출 프로그램</h1>
+          <h1 className="brand-title">
+            <span className="brand-ko">제이스칸</span>
+            <span className="brand-en">POWER REPEAT</span>
+          </h1>
           <p className="hero-copy">
-            선생님은 본문을 올리고, 학생은 모바일과 PC에서 바로 녹음해 제출합니다. 제출 현황,
-            피드백, 재제출 요청까지 한 화면에서 관리합니다.
+            반복을 통해 최고의 실력을 만드는 리딩녹음 숙제 제출프로그램
           </p>
         </div>
         <div className="hero-card">
