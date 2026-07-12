@@ -67,14 +67,6 @@ const safeEqual = (left: string, right: string) => {
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 };
 
-export const getDemoLoginUsers = () =>
-  teacherUsers.map((user) => ({
-    email: user.email,
-    name: user.name,
-    role: user.role,
-    passwordHint: user.password
-  }));
-
 export const authenticateDemoUser = async (email: string, password: string) => {
   const normalizedLogin = email.trim().toLowerCase();
   const user = teacherUsers.find(

@@ -25,9 +25,6 @@ import { splitPassageIntoPrepSegments, type PrepSegment } from "@/lib/passage-se
 import { getAssignmentColorKey, getPassageColorClass, getPassageColorIndex } from "@/lib/passage-colors";
 
 type RecordingState = "idle" | "recording" | "ready";
-type LoginDemoUser = Pick<SessionUser, "email" | "name" | "role"> & {
-  passwordHint: string;
-};
 type AuthenticatedHomeworkState = HomeworkState & {
   currentUser: SessionUser;
 };
@@ -300,7 +297,6 @@ export default function Home() {
   const [activeRole, setActiveRole] = useState<"teacher" | "student">("teacher");
   const [teacherCategory, setTeacherCategory] = useState<"content" | "roster">("content");
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
-  const [demoUsers, setDemoUsers] = useState<LoginDemoUser[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [classes, setClasses] = useState<ClassGroup[]>([]);
@@ -339,12 +335,12 @@ export default function Home() {
     email: ""
   });
   const [loginForm, setLoginForm] = useState({
-    email: "teacher@powerrepeat.test",
-    password: "teacher123"
+    email: "",
+    password: ""
   });
   const [studentLoginForm, setStudentLoginForm] = useState({
-    studentName: "김민준",
-    loginCode: "1234"
+    studentName: "",
+    loginCode: ""
   });
   const [feedbackDraft, setFeedbackDraft] = useState<Record<string, string>>({});
   const [scoreDraft, setScoreDraft] = useState<Record<string, number>>({});
@@ -770,10 +766,8 @@ export default function Home() {
         const authResponse = await fetch("/api/auth/me");
         const authState = (await authResponse.json()) as {
           user: SessionUser | null;
-          demoUsers: LoginDemoUser[];
         };
-        setCurrentUser(null);
-        setDemoUsers(authState.demoUsers);
+        setCurrentUser(authState.user);
         setAssignments([]);
         setSubmissions([]);
         setClasses([]);
@@ -1041,7 +1035,7 @@ export default function Home() {
       await loadState();
       setNotice("로그인되었습니다.");
     } catch {
-      setNotice("로그인에 실패했습니다. 데모 계정 정보를 확인해 주세요.");
+      setNotice("로그인에 실패했습니다. 이메일과 비밀번호를 확인해 주세요.");
     } finally {
       setIsSaving(false);
     }
@@ -1750,21 +1744,6 @@ export default function Home() {
                 {isSaving ? "로그인 중..." : "선생님 로그인"}
               </button>
             </form>
-          </div>
-          <div className="demo-grid">
-            {demoUsers.map((user) => (
-              <button
-                key={user.email}
-                type="button"
-                onClick={() => setLoginForm({ email: user.email, password: user.passwordHint })}
-              >
-                <strong>{user.name}</strong>
-                <span>{user.role === "admin" ? "수퍼관리자" : user.role === "teacher" ? "선생님" : "학생"} 계정</span>
-                <small>
-                  {user.email} / {user.passwordHint}
-                </small>
-              </button>
-            ))}
           </div>
         </section>
       ) : null}

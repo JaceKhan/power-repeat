@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import {
   authenticateDemoUser,
   authenticateStudentByNameAndCode,
-  getDemoLoginUsers,
   setSessionCookie
 } from "@/lib/auth";
 
@@ -22,8 +21,7 @@ export async function POST(request: Request) {
   if (!user) {
     return NextResponse.json(
       {
-        error: "Invalid email or password",
-        demoUsers: getDemoLoginUsers()
+        error: "Invalid email or password"
       },
       { status: 401 }
     );
