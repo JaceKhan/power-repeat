@@ -108,7 +108,7 @@ npm audit --audit-level=moderate
 - 제출 오디오 파일: `.data/uploads`
 - 오디오 재생: `/api/audio/[fileName]`
 - 전체 상태 조회: `/api/state`
-- 현재 사용자/데모 계정: `GET /api/auth/me`
+- 현재 사용자: `GET /api/auth/me`
 - 로그인: `POST /api/auth/login`
 - 로그아웃: `POST /api/auth/logout`
 - 반 생성: `POST /api/classes`

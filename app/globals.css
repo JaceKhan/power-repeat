@@ -229,29 +229,6 @@ audio {
   margin: 0;
 }
 
-.demo-grid {
-  display: grid;
-  gap: 10px;
-  grid-column: 1 / -1;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.demo-grid button {
-  background: #f8fafc;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  color: var(--foreground);
-  display: grid;
-  gap: 6px;
-  padding: 16px;
-  text-align: left;
-}
-
-.demo-grid span,
-.demo-grid small {
-  color: var(--muted);
-}
-
 .grid {
   align-items: start;
   display: grid;
@@ -1997,10 +1974,6 @@ textarea:focus {
   .mode-picker,
   .session-editor-row,
   .two-columns {
-    grid-template-columns: 1fr;
-  }
-
-  .demo-grid {
     grid-template-columns: 1fr;
   }
 
