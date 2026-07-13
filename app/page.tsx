@@ -319,13 +319,20 @@ const buildFormWithAssignedDates = (
   };
 };
 
-const blobToDataUrl = (blob: Blob) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
+/** Keep speech uploads under Vercel's ~4.5MB request body limit. */
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+/** Speech-quality bitrate; ~5 min ≈ 1.8MB (default Chrome bitrate can hit ~4–5MB). */
+const SPEECH_AUDIO_BITS_PER_SECOND = 48_000;
+
+const formatFileSize = (bytes: number) => {
+  if (bytes < 1024) {
+    return `${bytes}B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)}KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+};
 
 export default function Home() {
   const [activeRole, setActiveRole] = useState<"teacher" | "student">("teacher");
@@ -349,7 +356,7 @@ export default function Home() {
   const [studentView, setStudentView] = useState<"calendar" | "record">("calendar");
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingSec, setRecordingSec] = useState(0);
-  const [audioDataUrl, setAudioDataUrl] = useState("");
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState("");
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speakingSegmentId, setSpeakingSegmentId] = useState<string | null>(null);
@@ -383,6 +390,22 @@ export default function Home() {
   const chunksRef = useRef<BlobPart[]>([]);
   const timerRef = useRef<number | null>(null);
   const speechTokenRef = useRef(0);
+  const audioPreviewUrlRef = useRef("");
+
+  const revokeAudioPreview = () => {
+    if (audioPreviewUrlRef.current) {
+      URL.revokeObjectURL(audioPreviewUrlRef.current);
+      audioPreviewUrlRef.current = "";
+    }
+    setAudioPreviewUrl("");
+  };
+
+  const setAudioPreviewFromBlob = (blob: Blob) => {
+    revokeAudioPreview();
+    const nextUrl = URL.createObjectURL(blob);
+    audioPreviewUrlRef.current = nextUrl;
+    setAudioPreviewUrl(nextUrl);
+  };
 
   const selectedStudent = useMemo(
     () => students.find((student) => student.id === selectedStudentId) ?? students[0],
@@ -907,6 +930,10 @@ export default function Home() {
   useEffect(
     () => () => {
       window.speechSynthesis?.cancel();
+      if (audioPreviewUrlRef.current) {
+        URL.revokeObjectURL(audioPreviewUrlRef.current);
+        audioPreviewUrlRef.current = "";
+      }
     },
     []
   );
@@ -914,7 +941,7 @@ export default function Home() {
   const resetRecording = () => {
     setRecordingState("idle");
     setRecordingSec(0);
-    setAudioDataUrl("");
+    revokeAudioPreview();
     setAudioBlob(null);
     stopNativePronunciation();
     chunksRef.current = [];
@@ -938,7 +965,18 @@ export default function Home() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const preferredTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/aac"];
       const mimeType = preferredTypes.find((type) => MediaRecorder.isTypeSupported(type));
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const recorderOptions: MediaRecorderOptions = {
+        audioBitsPerSecond: SPEECH_AUDIO_BITS_PER_SECOND
+      };
+      if (mimeType) {
+        recorderOptions.mimeType = mimeType;
+      }
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(stream, recorderOptions);
+      } catch {
+        recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      }
       const resolvedType = recorder.mimeType || mimeType || "audio/webm";
 
       chunksRef.current = [];
@@ -947,7 +985,7 @@ export default function Home() {
           chunksRef.current.push(event.data);
         }
       };
-      recorder.onstop = async () => {
+      recorder.onstop = () => {
         stopTimer();
         stream.getTracks().forEach((track) => track.stop());
         const blob = new Blob(chunksRef.current, { type: resolvedType });
@@ -957,8 +995,13 @@ export default function Home() {
           return;
         }
         setAudioBlob(blob);
-        setAudioDataUrl(await blobToDataUrl(blob));
+        setAudioPreviewFromBlob(blob);
         setRecordingState("ready");
+        if (blob.size > MAX_UPLOAD_BYTES) {
+          setNotice(
+            `녹음 파일이 큽니다(${formatFileSize(blob.size)}). 제출 한도는 약 ${formatFileSize(MAX_UPLOAD_BYTES)}입니다. 다시 녹음하거나 더 짧은 파일로 제출해 주세요.`
+          );
+        }
       };
 
       recorderRef.current = recorder;
@@ -1147,6 +1190,13 @@ export default function Home() {
       return;
     }
 
+    if (audioBlob.size > MAX_UPLOAD_BYTES) {
+      setNotice(
+        `녹음 파일이 너무 큽니다(${formatFileSize(audioBlob.size)}). 제출 한도는 약 ${formatFileSize(MAX_UPLOAD_BYTES)}입니다. 앱에서 다시 녹음하거나 압축된 오디오로 제출해 주세요.`
+      );
+      return;
+    }
+
     const previousSubmission = submissions.find(
       (item) => item.sessionId === selectedSession.id && item.studentId === selectedStudent.id
     );
@@ -1192,6 +1242,11 @@ export default function Home() {
         | null;
 
       if (!response.ok) {
+        if (response.status === 413) {
+          throw new Error(
+            `녹음 파일이 서버 업로드 한도를 초과했습니다. 앱에서 다시 녹음해 주세요. (현재 ${formatFileSize(audioBlob.size)})`
+          );
+        }
         throw new Error(payload && "error" in payload && payload.error ? payload.error : `제출 실패 (${response.status})`);
       }
 
@@ -1226,16 +1281,22 @@ export default function Home() {
     }
   };
 
-  const handleUploadFallback = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleUploadFallback = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
       return;
     }
 
     setAudioBlob(file);
-    setAudioDataUrl(await blobToDataUrl(file));
+    setAudioPreviewFromBlob(file);
     setRecordingState("ready");
     setRecordingSec(0);
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setNotice(
+        `선택한 파일이 큽니다(${formatFileSize(file.size)}). 제출 한도는 약 ${formatFileSize(MAX_UPLOAD_BYTES)}입니다. 앱에서 다시 녹음해 주세요.`
+      );
+      return;
+    }
     setNotice("녹음 파일을 불러왔습니다. 미리듣기 후 제출하세요.");
   };
 
@@ -3391,14 +3452,14 @@ export default function Home() {
                                 <input accept="audio/*" type="file" onChange={handleUploadFallback} />
                               </label>
                             </div>
-                            {audioDataUrl ? <audio controls src={audioDataUrl} /> : null}
+                            {audioPreviewUrl ? <audio controls src={audioPreviewUrl} /> : null}
                             <div className="button-row">
                               <button type="button" onClick={resetRecording}>
                                 다시 녹음
                               </button>
                               <button
                                 className="submit-button"
-                                disabled={isSaving}
+                                disabled={isSaving || Boolean(audioBlob && audioBlob.size > MAX_UPLOAD_BYTES)}
                                 type="button"
                                 onClick={submitRecording}
                               >
@@ -3410,9 +3471,9 @@ export default function Home() {
                               </button>
                             </div>
                             <p className="helper-text">
-                              모든 구간 듣기 후 충분히 녹음하면 A+, 듣기 없이 정상 녹음하면 A,
-                              녹음이 지나치게 짧으면 B입니다. 기간 안에 다시 제출하면 등급이
-                              갱신됩니다.
+                              5분 전후 긴 녹음도 가능합니다. 모든 구간 듣기 후 충분히 녹음하면 A+,
+                              듣기 없이 정상 녹음하면 A, 녹음이 지나치게 짧으면 B입니다. 기간 안에
+                              다시 제출하면 등급이 갱신됩니다.
                             </p>
                           </>
                         ) : (
