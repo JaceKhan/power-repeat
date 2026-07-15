@@ -30,7 +30,9 @@ create index if not exists submissions_session_student_idx
   on submissions (session_id, student_id);
 ```
 
-학생 개인 배정(반에서 일부 학생만 선택)을 쓰려면 아래 마이그레이션도 실행합니다.
+학생 개인 배정(반에서 일부 학생만 선택)은 `sessions` JSON에 대상 학생을 함께 저장하므로 **추가 컬럼 없이도 동작**합니다.
+
+선택적으로 `student_ids` 컬럼을 추가하면 전용 컬럼으로도 저장됩니다.
 
 ```sql
 alter table assignments
@@ -40,7 +42,7 @@ alter table assignments
 이 SQL을 아직 실행하지 않으면:
 - **통 배정(1회)** 은 기존 컬럼만으로도 동작합니다.
 - **구간 분할 / 통 반복** 은 실패하며, 화면에 마이그레이션 안내가 표시됩니다.
-- **학생 개인 배정** 도 실패하며, 화면에 마이그레이션 안내가 표시됩니다. (반 전체 배정은 계속 동작합니다.)
+- **학생 개인 배정** 은 `sessions` 컬럼이 있으면 추가 마이그레이션 없이 동작합니다.
 
 ## 2. Vercel 환경변수
 

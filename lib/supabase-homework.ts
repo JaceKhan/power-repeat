@@ -218,24 +218,63 @@ const parseStudentIdsField = (value: unknown): string[] | undefined => {
   return undefined;
 };
 
-const parseSessionsField = (value: unknown): Assignment["sessions"] | undefined => {
-  if (Array.isArray(value)) {
-    return value as Assignment["sessions"];
+type ParsedSessionsField = {
+  sessions?: Assignment["sessions"];
+  studentIds?: string[];
+};
+
+/**
+ * sessions column may be:
+ * - AssignmentSession[] (legacy / class-wide)
+ * - { studentIds?: string[], items: AssignmentSession[] } when student_ids column is unavailable
+ */
+const parseSessionsField = (value: unknown): ParsedSessionsField => {
+  const parseObject = (parsed: unknown): ParsedSessionsField => {
+    if (Array.isArray(parsed)) {
+      return { sessions: parsed as Assignment["sessions"] };
+    }
+
+    if (parsed && typeof parsed === "object") {
+      const record = parsed as { items?: unknown; sessions?: unknown; studentIds?: unknown };
+      const items = Array.isArray(record.items)
+        ? (record.items as Assignment["sessions"])
+        : Array.isArray(record.sessions)
+          ? (record.sessions as Assignment["sessions"])
+          : undefined;
+      return {
+        sessions: items,
+        studentIds: parseStudentIdsField(record.studentIds)
+      };
+    }
+
+    return {};
+  };
+
+  if (Array.isArray(value) || (value && typeof value === "object")) {
+    return parseObject(value);
   }
 
   if (typeof value === "string" && value.trim()) {
     try {
-      const parsed = JSON.parse(value) as unknown;
-      return Array.isArray(parsed) ? (parsed as Assignment["sessions"]) : undefined;
+      return parseObject(JSON.parse(value));
     } catch {
-      return undefined;
+      return {};
     }
   }
 
-  return undefined;
+  return {};
 };
 
+const packSessionsField = (
+  sessions: Assignment["sessions"],
+  studentIds?: string[]
+) => (studentIds?.length ? { studentIds, items: sessions } : sessions);
+
 const mapAssignment = (row: DbRow, classById: Map<string, ClassGroup>, profileById: Map<string, DbRow>): Assignment => {
+  const packedSessions = parseSessionsField(row.sessions);
+  const studentIds =
+    parseStudentIdsField(row.student_ids) ?? packedSessions.studentIds;
+
   const base = {
     id: getString(row, "id"),
     title: getString(row, "title"),
@@ -243,7 +282,7 @@ const mapAssignment = (row: DbRow, classById: Map<string, ClassGroup>, profileBy
     level: getNumber(row, "level"),
     passageTitle: getString(row, "passage_title"),
     className: classById.get(getString(row, "class_id"))?.name ?? "",
-    studentIds: parseStudentIdsField(row.student_ids),
+    studentIds,
     passage: getString(row, "passage"),
     instructions: getOptionalString(row, "instructions") ?? "",
     dueDate: getString(row, "due_date"),
@@ -252,7 +291,7 @@ const mapAssignment = (row: DbRow, classById: Map<string, ClassGroup>, profileBy
       getOptionalString(profileById.get(getString(row, "teacher_id")) ?? {}, "display_name") ?? "Teacher",
     templateId: getOptionalString(row, "template_id"),
     mode: (getOptionalString(row, "mode") as AssignmentMode | undefined) ?? undefined,
-    sessions: parseSessionsField(row.sessions)
+    sessions: packedSessions.sessions
   };
 
   return ensureAssignmentSessions(base);
@@ -440,41 +479,52 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
   };
 
   let assignmentRow: unknown = null;
-  const scheduledInsert = await supabase
-    .from("assignments")
-    .insert({
+  let persistStudentIdsInSessions = Boolean(studentIds);
+
+  const insertAssignment = async (payload: Record<string, unknown>) =>
+    supabase.from("assignments").insert(payload).select().single();
+
+  // Prefer native student_ids column when available; otherwise embed in sessions JSON.
+  let scheduledInsert = await insertAssignment({
+    ...basePayload,
+    mode,
+    sessions: packSessionsField(sessions, undefined),
+    ...(studentIds ? { student_ids: studentIds } : {})
+  });
+
+  if (scheduledInsert.error && isMissingColumnError(scheduledInsert.error) && studentIds) {
+    persistStudentIdsInSessions = true;
+    scheduledInsert = await insertAssignment({
       ...basePayload,
       mode,
-      sessions,
-      ...(studentIds ? { student_ids: studentIds } : {})
-    })
-    .select()
-    .single();
+      sessions: packSessionsField(sessions, studentIds)
+    });
+  }
 
   if (scheduledInsert.error) {
     if (!isMissingColumnError(scheduledInsert.error)) {
       throw toError(scheduledInsert.error, "Unable to create assignment");
     }
 
-    if (studentIds) {
+    if (mode !== "single" || sessions.length > 1 || studentIds) {
       throw new Error(
-        "학생 개인 배정을 쓰려면 Supabase assignments 테이블에 student_ids 컬럼이 필요합니다. DEPLOYMENT.md의 SQL을 실행해 주세요."
+        "회차/개인 배정을 쓰려면 Supabase assignments 테이블에 mode, sessions 컬럼이 필요합니다. DEPLOYMENT.md의 SQL을 실행해 주세요."
       );
     }
 
-    if (mode !== "single" || sessions.length > 1) {
-      throw new Error(
-        "회차 배정(구간 분할/통 반복)을 쓰려면 Supabase assignments 테이블에 mode, sessions 컬럼이 필요합니다. DEPLOYMENT.md의 SQL을 실행해 주세요."
-      );
-    }
-
-    const fallbackInsert = await supabase.from("assignments").insert(basePayload).select().single();
+    const fallbackInsert = await insertAssignment(basePayload);
     if (fallbackInsert.error) {
       throw toError(fallbackInsert.error, "Unable to create assignment");
     }
     assignmentRow = fallbackInsert.data;
+    persistStudentIdsInSessions = false;
   } else {
     assignmentRow = scheduledInsert.data;
+    const saved = asRow(assignmentRow);
+    // Embed in sessions JSON only when the native student_ids column was not stored.
+    persistStudentIdsInSessions = Boolean(
+      studentIds && !parseStudentIdsField(saved.student_ids)?.length
+    );
   }
 
   const classData = asRow(classRow);
@@ -483,6 +533,7 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
     new Map([[getString(classData, "id"), mapClass(classData)]]),
     new Map()
   );
+  mapped.studentIds = studentIds ?? mapped.studentIds;
 
   // Keep session ids stable against the real assignment id.
   if (mapped.id !== tempId) {
@@ -495,9 +546,12 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
       })),
       mapped.id
     );
+    const sessionsPayload = persistStudentIdsInSessions
+      ? packSessionsField(mapped.sessions, mapped.studentIds)
+      : mapped.sessions;
     const { error: sessionUpdateError } = await supabase
       .from("assignments")
-      .update({ sessions: mapped.sessions, mode: mapped.mode })
+      .update({ sessions: sessionsPayload, mode: mapped.mode })
       .eq("id", mapped.id);
 
     if (sessionUpdateError && !isMissingColumnError(sessionUpdateError)) {
