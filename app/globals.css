@@ -685,6 +685,43 @@ audio {
   padding: 12px;
 }
 
+.aplus-retry-panel {
+  background: linear-gradient(180deg, #ecfdf5 0%, #f0fdf4 100%);
+  border: 1px solid #86efac;
+  border-radius: 16px;
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 14px;
+}
+
+.aplus-retry-panel strong {
+  color: #166534;
+  font-size: 16px;
+}
+
+.aplus-retry-panel p {
+  color: #166534;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.aplus-retry-panel ol {
+  color: #14532d;
+  display: grid;
+  font-size: 14px;
+  font-weight: 700;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.aplus-retry-panel li.done {
+  color: #15803d;
+  text-decoration: line-through;
+}
+
 .empty-record {
   display: grid;
   gap: 12px;

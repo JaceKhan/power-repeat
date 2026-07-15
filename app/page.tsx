@@ -497,15 +497,18 @@ export default function Home() {
   const prepCompleted =
     prepSegments.length > 0 && completedSegmentIds.length >= prepSegments.length;
 
+  const teacherRequestedResubmit = currentSubmission?.status === "resubmit";
+
+  /** A/B면 A+ 재도전 가능. A+가 아니면 다시 도전할 수 있습니다. */
   const canImproveCurrentSubmission = Boolean(
-    selectedSession &&
-      currentSubmission &&
-      currentSubmission.grade !== "A+" &&
-      isSessionWithinDeadline(selectedSession.dueDate)
+    selectedSession && currentSubmission && currentSubmission.grade !== "A+"
   );
 
   const canRecordCurrentSession = Boolean(
-    selectedSession && (!currentSubmission || isSessionWithinDeadline(selectedSession.dueDate))
+    selectedSession &&
+      (!currentSubmission ||
+        currentSubmission.grade !== "A+" ||
+        teacherRequestedResubmit)
   );
 
   const formPrepSegments = useMemo<PrepSegment[]>(
@@ -928,6 +931,50 @@ export default function Home() {
   }, [loadState]);
 
   useEffect(() => {
+    if (!selectedStudent?.id || !selectedSession?.id) {
+      return;
+    }
+
+    const storageKey = `power-repeat-prep:${selectedStudent.id}:${selectedSession.id}`;
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) {
+        return;
+      }
+      const saved = JSON.parse(raw) as string[];
+      if (!Array.isArray(saved) || !saved.length) {
+        return;
+      }
+      setCompletedPrepSegments((current) => {
+        const existing = current[selectedSession.id] ?? [];
+        if (existing.length) {
+          return current;
+        }
+        return {
+          ...current,
+          [selectedSession.id]: saved.filter((id): id is string => typeof id === "string")
+        };
+      });
+    } catch {
+      // Ignore broken local listening progress.
+    }
+  }, [selectedSession?.id, selectedStudent?.id]);
+
+  useEffect(() => {
+    if (!selectedStudent?.id || !selectedSession?.id) {
+      return;
+    }
+
+    const storageKey = `power-repeat-prep:${selectedStudent.id}:${selectedSession.id}`;
+    const segmentIds = completedPrepSegments[selectedSession.id] ?? [];
+    if (!segmentIds.length) {
+      window.localStorage.removeItem(storageKey);
+      return;
+    }
+    window.localStorage.setItem(storageKey, JSON.stringify(segmentIds));
+  }, [completedPrepSegments, selectedSession?.id, selectedStudent?.id]);
+
+  useEffect(() => {
     if (!visibleSessions.length) {
       if (selectedSessionId) {
         setSelectedSessionId("");
@@ -1221,8 +1268,13 @@ export default function Home() {
     const previousSubmission = submissions.find(
       (item) => item.sessionId === selectedSession.id && item.studentId === selectedStudent.id
     );
-    if (previousSubmission && !isSessionWithinDeadline(selectedSession.dueDate)) {
-      setNotice("제출 기간이 끝나 등급을 더 이상 올릴 수 없습니다.");
+    const mayResubmit =
+      !previousSubmission ||
+      isSessionWithinDeadline(selectedSession.dueDate) ||
+      previousSubmission.status === "resubmit" ||
+      previousSubmission.grade !== "A+";
+    if (!mayResubmit) {
+      setNotice("이미 A+를 받은 숙제입니다. 기간이 끝나 더 이상 바꿀 수 없습니다.");
       return;
     }
 
@@ -1286,8 +1338,8 @@ export default function Home() {
           ? ` ${previousGrade} → ${submission.grade}로 올랐어요!`
           : "";
       const canImproveMore =
-        submission.grade !== "A+" && isSessionWithinDeadline(selectedSession.dueDate)
-          ? " 기간 안에 다시 녹음하면 더 높은 등급을 받을 수 있습니다."
+        submission.grade !== "A+"
+          ? " 모든 구간을 들은 뒤 다시 녹음·제출하면 A+로 올릴 수 있어요."
           : "";
       setNotice(`제출 완료! 등급 ${submission.grade}.${improved}${canImproveMore}`);
     } catch (error) {
@@ -3444,8 +3496,8 @@ export default function Home() {
                         <div>
                           <strong>먼저 듣고 따라 읽기</strong>
                           <p>
-                            모든 구간을 끝까지 들으면 A+ 준비 표시가 됩니다. 기간 안에 다시
-                            녹음하면 등급을 올릴 수 있습니다.
+                            모든 구간을 끝까지 들으면 A+ 준비 표시가 됩니다. A/B로 제출했어도
+                            다시 듣고 녹음하면 A+로 올릴 수 있습니다.
                           </p>
                         </div>
                         <div className="button-row">
@@ -3463,7 +3515,7 @@ export default function Home() {
                           ) : null}
                         </div>
                       </div>
-                      <div className="prep-panel">
+                      <div className="prep-panel" id="prep-panel">
                         <div className="prep-summary">
                           <div>
                             <strong>구간 듣기 완료</strong>
@@ -3472,7 +3524,11 @@ export default function Home() {
                             </span>
                           </div>
                           <span className={`grade-pill ${prepCompleted ? "grade-aplus" : "grade-a"}`}>
-                            {prepCompleted ? "A+ 준비 완료" : "듣기 없이 제출하면 A"}
+                            {prepCompleted
+                              ? "A+ 준비 완료"
+                              : canImproveCurrentSubmission
+                                ? "A+ 재도전: 구간을 모두 들으세요"
+                                : "듣기 없이 제출하면 A"}
                           </span>
                         </div>
                         <div className="prep-segments">
@@ -3527,11 +3583,39 @@ export default function Home() {
                           </span>
                           <audio controls src={currentSubmission.audioUrl} />
                           {canImproveCurrentSubmission ? (
-                            <p className="improve-hint">
-                              지금 등급은 {currentSubmission.grade}입니다. 일요일(
-                              {formatAssignedDateLabel(selectedSession.dueDate)})까지 다시 녹음하면
-                              더 높은 등급으로 바꿀 수 있어요.
-                            </p>
+                            <div className="aplus-retry-panel">
+                              <strong>A+ 재도전 가능</strong>
+                              <p>
+                                지금 등급은 {currentSubmission.grade}입니다. 아래 순서로 다시 도전하면
+                                A+로 바꿀 수 있어요.
+                              </p>
+                              <ol>
+                                <li className={prepCompleted ? "done" : ""}>
+                                  모든 구간 듣기 ({completedSegmentIds.length}/{prepSegments.length})
+                                </li>
+                                <li>다시 녹음하기</li>
+                                <li>다시 제출하기</li>
+                              </ol>
+                              <button
+                                className="primary-button"
+                                type="button"
+                                onClick={() => {
+                                  document
+                                    .getElementById("student-recorder")
+                                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                                  if (!prepCompleted) {
+                                    setNotice(
+                                      "A+를 받으려면 먼저 모든 듣기 구간을 끝까지 재생해 주세요."
+                                    );
+                                    document
+                                      .getElementById("prep-panel")
+                                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                                  }
+                                }}
+                              >
+                                {prepCompleted ? "녹음하고 A+ 도전" : "듣고 A+ 재도전 시작"}
+                              </button>
+                            </div>
                           ) : null}
                         </div>
                       ) : (
@@ -3542,7 +3626,7 @@ export default function Home() {
                       )}
                     </div>
 
-                    <aside className="student-recorder-sticky">
+                    <aside className="student-recorder-sticky" id="student-recorder">
                       <div className="recorder">
                         <div>
                           <p className="eyebrow">Recorder</p>
@@ -3551,13 +3635,22 @@ export default function Home() {
                               ? `녹음 중 ${formatDuration(recordingSec)}`
                               : recordingState === "ready"
                                 ? "제출 전 미리듣기"
-                                : currentSubmission
-                                  ? "다시 녹음하기"
-                                  : "녹음 준비"}
+                                : canImproveCurrentSubmission
+                                  ? "A+ 재도전 녹음"
+                                  : currentSubmission
+                                    ? "다시 녹음하기"
+                                    : "녹음 준비"}
                           </h3>
                         </div>
                         {canRecordCurrentSession ? (
                           <>
+                            {canImproveCurrentSubmission ? (
+                              <p className="improve-hint">
+                                {prepCompleted
+                                  ? "듣기 준비 완료! 다시 녹음한 뒤 제출하면 A+를 받을 수 있습니다."
+                                  : `아직 듣기 ${completedSegmentIds.length}/${prepSegments.length}입니다. 구간을 모두 들은 뒤 녹음하세요.`}
+                              </p>
+                            ) : null}
                             <div className="button-row">
                               {recordingState === "recording" ? (
                                 <button
@@ -3573,7 +3666,7 @@ export default function Home() {
                                   type="button"
                                   onClick={startRecording}
                                 >
-                                  녹음 시작
+                                  {canImproveCurrentSubmission ? "재도전 녹음 시작" : "녹음 시작"}
                                 </button>
                               )}
                               <label className="upload-button">
@@ -3588,27 +3681,36 @@ export default function Home() {
                               </button>
                               <button
                                 className="submit-button"
-                                disabled={isSaving || Boolean(audioBlob && audioBlob.size > MAX_UPLOAD_BYTES)}
+                                disabled={
+                                  isSaving ||
+                                  !audioBlob ||
+                                  Boolean(audioBlob && audioBlob.size > MAX_UPLOAD_BYTES)
+                                }
                                 type="button"
                                 onClick={submitRecording}
                               >
                                 {isSaving
                                   ? "제출 중..."
-                                  : currentSubmission
-                                    ? "다시 제출하기"
-                                    : "최종 제출"}
+                                  : canImproveCurrentSubmission
+                                    ? prepCompleted
+                                      ? "A+로 다시 제출"
+                                      : "다시 제출하기 (지금은 A)"
+                                    : currentSubmission
+                                      ? "다시 제출하기"
+                                      : "최종 제출"}
                               </button>
                             </div>
                             <p className="helper-text">
-                              5분 전후 긴 녹음도 가능합니다. 모든 구간 듣기 후 충분히 녹음하면 A+,
-                              듣기 없이 정상 녹음하면 A, 녹음이 지나치게 짧으면 B입니다. 기간 안에
-                              다시 제출하면 등급이 갱신됩니다.
+                              모든 구간 듣기 후 충분히 녹음하면 A+, 듣기 없이 정상 녹음하면 A,
+                              녹음이 지나치게 짧으면 B입니다. A+가 아니면 언제든 다시 도전할 수
+                              있습니다.
                             </p>
                           </>
                         ) : (
                           <p className="helper-text">
-                            제출 기간이 끝나 더 이상 녹음을 바꿀 수 없습니다. 달력에서 등급을
-                            확인하세요.
+                            {currentSubmission?.grade === "A+"
+                              ? "이미 A+입니다. 달력에서 결과를 확인하세요."
+                              : "제출 기간이 끝나 더 이상 녹음을 바꿀 수 없습니다. 달력에서 등급을 확인하세요."}
                           </p>
                         )}
                         <button
