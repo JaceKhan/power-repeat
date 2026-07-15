@@ -5,6 +5,7 @@ import {
   ensureAssignmentSessions,
   getSessionPassage,
   materializeSessions,
+  normalizeStudentIds,
   type AssignmentMode,
   type SessionDraft
 } from "@/lib/assignment-sessions";
@@ -24,6 +25,7 @@ type CreateAssignmentInput = {
   level: number;
   passageTitle: string;
   className: string;
+  studentIds?: string[];
   passage: string;
   instructions: string;
   dueDate: string;
@@ -200,6 +202,22 @@ const mapTemplate = (row: DbRow): PassageTemplate => ({
   updatedAt: getString(row, "updated_at")
 });
 
+const parseStudentIdsField = (value: unknown): string[] | undefined => {
+  if (Array.isArray(value)) {
+    return normalizeStudentIds(value);
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    try {
+      return normalizeStudentIds(JSON.parse(value));
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
+};
+
 const parseSessionsField = (value: unknown): Assignment["sessions"] | undefined => {
   if (Array.isArray(value)) {
     return value as Assignment["sessions"];
@@ -225,6 +243,7 @@ const mapAssignment = (row: DbRow, classById: Map<string, ClassGroup>, profileBy
     level: getNumber(row, "level"),
     passageTitle: getString(row, "passage_title"),
     className: classById.get(getString(row, "class_id"))?.name ?? "",
+    studentIds: parseStudentIdsField(row.student_ids),
     passage: getString(row, "passage"),
     instructions: getOptionalString(row, "instructions") ?? "",
     dueDate: getString(row, "due_date"),
@@ -357,6 +376,24 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
     throw toError(classError, "class not found");
   }
 
+  const studentIds = normalizeStudentIds(input.studentIds);
+  if (studentIds) {
+    const { data: classStudents, error: classStudentsError } = await supabase
+      .from("students")
+      .select("id")
+      .eq("class_id", classRow.id)
+      .eq("active", true)
+      .in("id", studentIds);
+
+    if (classStudentsError) {
+      throw toError(classStudentsError, "Unable to verify selected students");
+    }
+
+    if ((classStudents ?? []).length !== studentIds.length) {
+      throw new Error("selected students are not in this class");
+    }
+  }
+
   const { data: templateRow, error: templateError } = await supabase
     .from("passage_templates")
     .upsert(
@@ -408,7 +445,8 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
     .insert({
       ...basePayload,
       mode,
-      sessions
+      sessions,
+      ...(studentIds ? { student_ids: studentIds } : {})
     })
     .select()
     .single();
@@ -416,6 +454,12 @@ export const createSupabaseAssignment = async (input: CreateAssignmentInput) => 
   if (scheduledInsert.error) {
     if (!isMissingColumnError(scheduledInsert.error)) {
       throw toError(scheduledInsert.error, "Unable to create assignment");
+    }
+
+    if (studentIds) {
+      throw new Error(
+        "학생 개인 배정을 쓰려면 Supabase assignments 테이블에 student_ids 컬럼이 필요합니다. DEPLOYMENT.md의 SQL을 실행해 주세요."
+      );
     }
 
     if (mode !== "single" || sessions.length > 1) {
@@ -606,6 +650,10 @@ export const createSupabaseSubmission = async (input: CreateSubmissionInput) => 
   }
 
   const assignment = mapAssignment(asRow(assignmentRow), new Map(), new Map());
+
+  if (assignment.studentIds?.length && !assignment.studentIds.includes(studentId)) {
+    throw new Error("student is not assigned to this homework");
+  }
   const session =
     assignment.sessions.find((item) => item.id === sessionId) ||
     (assignment.sessions.length === 1 ? assignment.sessions[0] : undefined);
