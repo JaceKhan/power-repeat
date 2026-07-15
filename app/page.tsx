@@ -19,6 +19,7 @@ import {
   getSessionPassage,
   getSessionPrepSegments,
   getWeekSunday,
+  isStudentAssignmentTarget,
   type SessionDraft
 } from "@/lib/assignment-sessions";
 import { splitPassageIntoPrepSegments, type PrepSegment } from "@/lib/passage-segments";
@@ -30,11 +31,14 @@ type AuthenticatedHomeworkState = HomeworkState & {
 };
 type HomeworkStatusKey = "pending" | "submitted" | "reviewed" | "resubmit";
 type AssignStep = 1 | 2 | 3 | 4;
+type AssignTargetType = "class" | "students";
 type AssignmentForm = {
   bookName: string;
   level: number;
   passageTitle: string;
   className: string;
+  targetType: AssignTargetType;
+  studentIds: string[];
   dueDate: string;
   passage: string;
   instructions: string;
@@ -244,6 +248,8 @@ const getInitialAssignmentForm = (): AssignmentForm => {
     level: 2,
     passageTitle: "",
     className: "CHESS Reading A",
+    targetType: "class",
+    studentIds: [],
     dueDate,
     passage: "",
     instructions: "본문 전체를 또렷하게 읽고, 제출 전 반드시 미리듣기로 확인하세요.",
@@ -415,7 +421,7 @@ export default function Home() {
   const visibleAssignments = useMemo(
     () =>
       selectedStudent
-        ? assignments.filter((assignment) => assignment.className === selectedStudent.className)
+        ? assignments.filter((assignment) => isStudentAssignmentTarget(assignment, selectedStudent))
         : [],
     [assignments, selectedStudent]
   );
@@ -505,6 +511,19 @@ export default function Home() {
   const formPrepSegments = useMemo<PrepSegment[]>(
     () => splitPassageIntoPrepSegments(form.passage),
     [form.passage]
+  );
+
+  const formClassStudents = useMemo(
+    () => students.filter((student) => student.className === form.className && student.active),
+    [form.className, students]
+  );
+
+  const formTargetStudentNames = useMemo(
+    () =>
+      form.studentIds
+        .map((studentId) => students.find((student) => student.id === studentId)?.name)
+        .filter((name): name is string => Boolean(name)),
+    [form.studentIds, students]
   );
 
   const sessionsByDate = useMemo(() => {
@@ -723,7 +742,7 @@ export default function Home() {
   const assignedSubmissionSlots = assignments.reduce(
     (count, assignment) =>
       count +
-      students.filter((student) => student.className === assignment.className).length *
+      students.filter((student) => isStudentAssignmentTarget(assignment, student)).length *
         assignment.sessions.length,
     0
   );
@@ -733,7 +752,9 @@ export default function Home() {
   const calculateStudentAchievement = useCallback(
     (student: Student, periodStart?: Date) => {
       const now = new Date();
-      const classAssignments = assignments.filter((assignment) => assignment.className === student.className);
+      const classAssignments = assignments.filter((assignment) =>
+        isStudentAssignmentTarget(assignment, student)
+      );
       const relevantSessions = classAssignments
         .flatMap((assignment) =>
           assignment.sessions.map((session) => ({
@@ -1364,6 +1385,23 @@ export default function Home() {
     });
   };
 
+  const changeAssignTargetType = (targetType: AssignTargetType) => {
+    setForm((current) => ({
+      ...current,
+      targetType,
+      studentIds: targetType === "class" ? [] : current.studentIds
+    }));
+  };
+
+  const toggleTargetStudent = (studentId: string) => {
+    setForm((current) => ({
+      ...current,
+      studentIds: current.studentIds.includes(studentId)
+        ? current.studentIds.filter((id) => id !== studentId)
+        : [...current.studentIds, studentId]
+    }));
+  };
+
   const changeAssignmentMode = (mode: AssignmentMode) => {
     setForm((current) => {
       const dates = getUniqueSortedDates(current.sessionDrafts.map(getDraftAssignedDate));
@@ -1465,6 +1503,11 @@ export default function Home() {
       setAssignStep(3);
       return;
     }
+    if (form.targetType === "students" && !form.studentIds.length) {
+      setNotice("개별 학생 배정을 선택했다면 학생을 한 명 이상 선택해 주세요.");
+      setAssignStep(3);
+      return;
+    }
     if (!form.sessionDrafts.length || form.sessionDrafts.some((session) => !session.assignedDate)) {
       setNotice("달력에서 배정할 요일을 하나 이상 선택해 주세요.");
       setAssignStep(3);
@@ -1482,6 +1525,7 @@ export default function Home() {
         },
         body: JSON.stringify({
           ...form,
+          studentIds: form.targetType === "students" ? form.studentIds : [],
           mode: form.mode,
           dueDate: lastDueDate,
           sessions: sessionDrafts
@@ -1503,6 +1547,8 @@ export default function Home() {
           ...current,
           passageTitle: "",
           passage: "",
+          targetType: "class",
+          studentIds: [],
           dueDate,
           mode: current.mode,
           sessionCount: current.mode === "single" ? 1 : current.sessionCount,
@@ -1558,6 +1604,11 @@ export default function Home() {
     if (step > 2 && !form.passage.trim()) {
       setNotice("2단계에서 학생이 읽을 본문을 입력하거나 편집해 주세요.");
       setAssignStep(2);
+      return;
+    }
+    if (step > 3 && form.targetType === "students" && !form.studentIds.length) {
+      setNotice("3단계에서 개별 배정할 학생을 한 명 이상 선택해 주세요.");
+      setAssignStep(3);
       return;
     }
     if (
@@ -2156,7 +2207,11 @@ export default function Home() {
                       value={form.className}
                       onChange={(event) => {
                         const nextClass = event.target.value;
-                        setForm((current) => ({ ...current, className: nextClass }));
+                        setForm((current) => ({
+                          ...current,
+                          className: nextClass,
+                          studentIds: nextClass === current.className ? current.studentIds : []
+                        }));
                         if (nextClass) {
                           setStatusClassFilter(nextClass);
                         }
@@ -2169,6 +2224,64 @@ export default function Home() {
                       ))}
                     </select>
                   </label>
+                  <label>
+                    배정 대상
+                    <div className="mode-picker target-picker">
+                      <button
+                        className={form.targetType === "class" ? "active" : ""}
+                        type="button"
+                        onClick={() => changeAssignTargetType("class")}
+                      >
+                        <strong>반 전체</strong>
+                        <span>{formClassStudents.length}명 모두에게 배정</span>
+                      </button>
+                      <button
+                        className={form.targetType === "students" ? "active" : ""}
+                        type="button"
+                        onClick={() => changeAssignTargetType("students")}
+                      >
+                        <strong>개별 학생</strong>
+                        <span>필요한 학생만 골라 배정</span>
+                      </button>
+                    </div>
+                  </label>
+                  {form.targetType === "students" ? (
+                    <div className="student-target-panel">
+                      <div className="student-target-heading">
+                        <strong>개별 배정 학생 선택</strong>
+                        <span>
+                          {form.studentIds.length
+                            ? `${form.studentIds.length}명 선택됨`
+                            : "학생을 한 명 이상 선택하세요"}
+                        </span>
+                      </div>
+                      {formClassStudents.length ? (
+                        <div className="student-target-list">
+                          {formClassStudents.map((student) => (
+                            <button
+                              aria-pressed={form.studentIds.includes(student.id)}
+                              className={
+                                form.studentIds.includes(student.id)
+                                  ? "student-target-chip active"
+                                  : "student-target-chip"
+                              }
+                              key={student.id}
+                              type="button"
+                              onClick={() => toggleTargetStudent(student.id)}
+                            >
+                              {student.name}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="empty compact-empty">이 반에 등록된 학생이 없습니다.</p>
+                      )}
+                      <p className="helper-note">
+                        선택한 학생에게만 숙제가 보이고, 나머지 학생의 달력·제출 현황에는 나타나지
+                        않습니다.
+                      </p>
+                    </div>
+                  ) : null}
                   <div className="existing-homework-panel">
                     <div className="existing-homework-heading">
                       <strong>{form.className || "선택한 반"} 기 배정 숙제</strong>
@@ -2198,6 +2311,9 @@ export default function Home() {
                                 <small>
                                   {assignment.bookName} / Level {assignment.level} ·{" "}
                                   {ASSIGNMENT_MODE_LABEL[assignment.mode]} · {assignment.sessions.length}회차
+                                  {assignment.studentIds?.length
+                                    ? ` · 개인 배정 ${assignment.studentIds.length}명`
+                                    : ""}
                                 </small>
                                 {firstSession && lastSession ? (
                                   <small>
@@ -2388,6 +2504,14 @@ export default function Home() {
                     <div>
                       <span>반</span>
                       <strong>{form.className}</strong>
+                    </div>
+                    <div>
+                      <span>배정 대상</span>
+                      <strong>
+                        {form.targetType === "students"
+                          ? `개별 학생 ${form.studentIds.length}명 (${formTargetStudentNames.join(", ")})`
+                          : `반 전체 ${formClassStudents.length}명`}
+                      </strong>
                     </div>
                     <div>
                       <span>최종 제출 기한</span>
@@ -2821,8 +2945,8 @@ export default function Home() {
             <div className="assignment-list">
               {statusBoardAssignments.length ? (
                 statusBoardAssignments.map((assignment) => {
-                const assignedStudents = students.filter(
-                  (student) => student.className === assignment.className
+                const assignedStudents = students.filter((student) =>
+                  isStudentAssignmentTarget(assignment, student)
                 );
                 const firstSession = assignment.sessions[0];
                 const lastSession = assignment.sessions[assignment.sessions.length - 1];
@@ -2848,6 +2972,11 @@ export default function Home() {
                       </p>
                       <p>
                         {ASSIGNMENT_MODE_LABEL[assignment.mode]} · {assignment.sessions.length}회차
+                        {assignment.studentIds?.length
+                          ? ` · 개인 배정 ${assignedStudents.length}명 (${assignedStudents
+                              .map((student) => student.name)
+                              .join(", ")})`
+                          : " · 반 전체"}
                       </p>
                       {firstSession && lastSession ? (
                         <p>

@@ -30,9 +30,17 @@ create index if not exists submissions_session_student_idx
   on submissions (session_id, student_id);
 ```
 
+학생 개인 배정(반에서 일부 학생만 선택)을 쓰려면 아래 마이그레이션도 실행합니다.
+
+```sql
+alter table assignments
+  add column if not exists student_ids jsonb;
+```
+
 이 SQL을 아직 실행하지 않으면:
 - **통 배정(1회)** 은 기존 컬럼만으로도 동작합니다.
 - **구간 분할 / 통 반복** 은 실패하며, 화면에 마이그레이션 안내가 표시됩니다.
+- **학생 개인 배정** 도 실패하며, 화면에 마이그레이션 안내가 표시됩니다. (반 전체 배정은 계속 동작합니다.)
 
 ## 2. Vercel 환경변수
 

@@ -25,6 +25,28 @@ export const ASSIGNMENT_MODE_LABEL: Record<AssignmentMode, string> = {
   repeat: "통 반복"
 };
 
+/**
+ * An assignment targets the whole class by default; when studentIds is set,
+ * only those students in the class receive it.
+ */
+export const isStudentAssignmentTarget = (
+  assignment: { className: string; studentIds?: string[] },
+  student: { id: string; className: string }
+) =>
+  assignment.className === student.className &&
+  (!assignment.studentIds?.length || assignment.studentIds.includes(student.id));
+
+export const normalizeStudentIds = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const ids = Array.from(
+    new Set(value.filter((id): id is string => typeof id === "string" && Boolean(id.trim())))
+  );
+  return ids.length ? ids : undefined;
+};
+
 export const addDaysToDateString = (dateString: string, days: number) => {
   const date = new Date(`${dateString}T12:00:00`);
   date.setDate(date.getDate() + days);

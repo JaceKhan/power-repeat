@@ -5,7 +5,9 @@ import {
   buildSessionDrafts,
   ensureAssignmentSessions,
   getSessionPassage,
+  isStudentAssignmentTarget,
   materializeSessions,
+  normalizeStudentIds,
   type AssignmentMode,
   type AssignmentSession,
   type SessionDraft
@@ -33,6 +35,8 @@ export type Assignment = {
   level: number;
   passageTitle: string;
   className: string;
+  /** Empty/undefined means the whole class; otherwise only these students. */
+  studentIds?: string[];
   passage: string;
   instructions: string;
   dueDate: string;
@@ -114,6 +118,7 @@ type CreateAssignmentInput = {
   level: number;
   passageTitle: string;
   className: string;
+  studentIds?: string[];
   passage: string;
   instructions: string;
   dueDate: string;
@@ -292,6 +297,7 @@ const normalizeAssignment = (assignment: Assignment): Assignment => {
     bookName,
     level,
     passageTitle,
+    studentIds: normalizeStudentIds(assignment.studentIds),
     title: assignment.title?.trim() || buildAssignmentTitle({ bookName, level, passageTitle })
   };
 
@@ -502,6 +508,18 @@ export const createAssignment = async (input: CreateAssignmentInput) => {
     throw new Error("class not found");
   }
 
+  const studentIds = normalizeStudentIds(input.studentIds);
+  if (studentIds) {
+    const classStudentIds = new Set(
+      data.students
+        .filter((student) => student.active && student.className === className)
+        .map((student) => student.id)
+    );
+    if (studentIds.some((studentId) => !classStudentIds.has(studentId))) {
+      throw new Error("selected students are not in this class");
+    }
+  }
+
   const now = new Date().toISOString();
   const existingTemplate = data.templates.find(
     (template) =>
@@ -547,6 +565,7 @@ export const createAssignment = async (input: CreateAssignmentInput) => {
     level,
     passageTitle,
     className,
+    studentIds,
     passage,
     dueDate: lastDueDate,
     instructions: input.instructions?.trim() ?? "",
@@ -723,8 +742,8 @@ export const createSubmission = async (input: CreateSubmissionInput) => {
     throw new Error("student not found");
   }
 
-  if (student.className !== assignment.className) {
-    throw new Error("student is not assigned to this class");
+  if (!isStudentAssignmentTarget(assignment, student)) {
+    throw new Error("student is not assigned to this homework");
   }
 
   const previousSubmission = data.submissions.find(

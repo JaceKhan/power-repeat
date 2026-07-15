@@ -814,6 +814,53 @@ audio {
   color: white;
 }
 
+.target-picker {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.student-target-panel {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.student-target-heading {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.student-target-heading span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.student-target-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.student-target-chip {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 14px;
+}
+
+.student-target-chip.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: white;
+}
+
 .session-editor {
   display: grid;
   gap: 10px;

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isStudentAssignmentTarget } from "@/lib/assignment-sessions";
 import { getCurrentUser } from "@/lib/auth";
 import { getHomeworkState } from "@/lib/homework-data";
 
@@ -21,7 +22,7 @@ export async function GET() {
 
   const currentStudent = state.students.find((student) => student.id === user.studentId);
   const assignments = currentStudent
-    ? state.assignments.filter((assignment) => assignment.className === currentStudent.className)
+    ? state.assignments.filter((assignment) => isStudentAssignmentTarget(assignment, currentStudent))
     : [];
   const submissions = state.submissions.filter((submission) => submission.studentId === user.studentId);
 
